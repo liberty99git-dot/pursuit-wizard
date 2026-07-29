@@ -14,6 +14,7 @@ create table accounts (
   prev_stage pipeline_stage, -- stage before going on_ice/moving_on
   stage_changed_at timestamptz not null default now(),
   dm_name text,
+  dm_email text,
   city text,
   notes text,
   ice_until date,

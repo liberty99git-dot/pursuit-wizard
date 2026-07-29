@@ -394,7 +394,8 @@ select.input { cursor: pointer; }
 .voice-sample-row { font-size: 13px; }
 .voice-status { margin-top: 12px; font-size: 13px; color: var(--text-dim); white-space: pre-wrap; }
 .gen-output { font-size: 13.5px; line-height: 1.6; margin-top: 12px; }
-.gen-actions { display: flex; gap: 10px; margin-top: 10px; }
+.gen-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.mail-hint { margin: 10px 0 0; font-size: 12px; }
 
 /* ---------- TOAST ---------- */
 .toast {

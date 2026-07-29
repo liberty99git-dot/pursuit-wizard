@@ -227,7 +227,7 @@ async function openDrawer(id) {
 
   $('drawer-content').innerHTML = `
     <h2>${sfPill(a)} </h2>
-    <div class="card-sub">${a.dm_name ? '👤 ' + esc(a.dm_name) : 'No DM identified yet'}${a.city ? ' · 📍 ' + esc(a.city) : ''} · added ${daysAgo(a.created_at)}d ago</div>
+    <div class="card-sub">${a.dm_name ? '👤 ' + esc(a.dm_name) : 'No DM identified yet'}${a.dm_email ? ' · ✉️ ' + esc(a.dm_email) : ''}${a.city ? ' · 📍 ' + esc(a.city) : ''} · added ${daysAgo(a.created_at)}d ago</div>
 
     <div class="drawer-section">
       <h4>Stage</h4>
@@ -313,6 +313,7 @@ function openAccountModal(id) {
     <div class="field"><label>Business name</label><input id="m-name" class="input" value="${esc(a?.name || '')}" placeholder="Tony's Pizza"></div>
     <div class="field"><label>Salesforce link (paste it — name becomes the clickable pill)</label><input id="m-sf" class="input" value="${esc(a?.sf_url || '')}" placeholder="https://uber.lightning.force.com/…"></div>
     <div class="field"><label>Decision maker</label><input id="m-dm" class="input" value="${esc(a?.dm_name || '')}" placeholder="Who signs?"></div>
+    <div class="field"><label>Their email</label><input id="m-dmemail" class="input" type="email" value="${esc(a?.dm_email || '')}" placeholder="tony@tonyspizza.com"></div>
     <div class="field"><label>City</label><input id="m-city" class="input" value="${esc(a?.city || '')}" placeholder="Columbus, OH"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -320,7 +321,7 @@ function openAccountModal(id) {
     </div>`);
 }
 async function saveAccount(id) {
-  const row = { name: $('m-name').value.trim(), sf_url: $('m-sf').value.trim() || null, dm_name: $('m-dm').value.trim() || null, city: $('m-city').value.trim() || null };
+  const row = { name: $('m-name').value.trim(), sf_url: $('m-sf').value.trim() || null, dm_name: $('m-dm').value.trim() || null, dm_email: $('m-dmemail').value.trim() || null, city: $('m-city').value.trim() || null };
   if (!row.name) return toast('Name it first');
   if (id) await sb.from('accounts').update(row).eq('id', id);
   else await sb.from('accounts').insert(row);
@@ -524,6 +525,33 @@ $('gen-btn').onclick = async () => {
   } catch (e) { toast('⚠️ ' + e.message); }
   btn.disabled = false; btn.textContent = '✨ Generate Email';
 };
+// Claude puts "Subject: ..." on line 1; split it off so the mail client gets a real subject.
+function splitDraft(raw) {
+  const m = raw.match(/^\s*subject:\s*(.+?)\r?\n([\s\S]*)$/i);
+  return m ? { subject: m[1].trim(), body: m[2].replace(/^\s+/, '') } : { subject: '', body: raw };
+}
+
+$('open-mail-btn').onclick = async () => {
+  const accId = $('gen-account').value;
+  const a = state.accounts.find(x => x.id === accId);
+  const { subject, body } = splitDraft($('gen-output').value);
+  const to = a?.dm_email || '';
+  if (!to) toast('No email saved for this account — add one and it’ll prefill');
+
+  const href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  // Some mail clients silently truncate very long mailto URLs — copy as a safety net.
+  if (href.length > 1800) {
+    await navigator.clipboard.writeText($('gen-output').value);
+    toast('📋 Draft copied too — it’s long, paste if the body looks cut off');
+  }
+  window.location.href = href;
+
+  if (accId) {
+    await sb.from('touchpoints').insert({ account_id: accId, type: 'email', note: subject || 'AI-drafted email' });
+    await loadAll();
+  }
+};
+
 $('copy-email-btn').onclick = () => { navigator.clipboard.writeText($('gen-output').value); toast('📋 Copied'); };
 $('log-email-btn').onclick = async () => {
   navigator.clipboard.writeText($('gen-output').value);
