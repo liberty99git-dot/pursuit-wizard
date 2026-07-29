@@ -49,7 +49,10 @@
         <div class="panel glow-hover">
           <h3>⏰ Reminders</h3>
           <div id="dash-reminders"></div>
-          <button class="btn btn-ghost" onclick="openReminderModal()">+ New reminder</button>
+          <div class="reminder-actions">
+            <button class="btn btn-ghost" onclick="openReminderModal()">+ New reminder</button>
+            <button id="test-digest-btn" class="btn btn-ghost" title="Send today's digest to your inbox right now">📧 Email me this</button>
+          </div>
         </div>
         <div class="panel glow-hover">
           <h3>📅 Today &amp; Upcoming</h3>

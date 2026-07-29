@@ -139,6 +139,20 @@ async function completeReminder(id) {
   await loadAll();
 }
 
+$('test-digest-btn').onclick = async () => {
+  const btn = $('test-digest-btn'); btn.disabled = true; btn.textContent = '📧 Sending…';
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch('/api/cron-digest?force=1', { headers: { Authorization: 'Bearer ' + session.access_token } });
+    const out = await r.json();
+    if (out.sent) toast('📧 Sent — check your inbox');
+    else if (out.reason === 'RESEND_API_KEY not set') toast('⚠️ Add RESEND_API_KEY in Vercel first');
+    else if (out.reason) toast('Nothing to report right now');
+    else toast('⚠️ ' + JSON.stringify(out.error || out).slice(0, 60));
+  } catch (e) { toast('⚠️ ' + e.message); }
+  btn.disabled = false; btn.textContent = '📧 Email me this';
+};
+
 // ===== BRIEFING =====
 $('briefing-btn').onclick = async () => {
   const btn = $('briefing-btn'); btn.disabled = true; btn.textContent = '🔮 Thinking…';
