@@ -3,24 +3,27 @@ const SUPABASE_URL = 'https://oenapblefpxhjrqqcbme.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_X89W8WryekjguGHTXZZN3Q_Itq9bUO3';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// `short` is what fits a 9-across column header; `label` is the full name.
+// `park: true` marks the two states an account can drop into from anywhere.
 const STAGES = [
-  { key: 'looking_for_dm', label: '🔎 Looking for DM', color: 'var(--stage-looking)' },
-  { key: 'found_dm', label: '🎯 Found DM', color: 'var(--stage-found)' },
-  { key: 'talked_to_dm', label: '🗣️ Talked to DM', color: 'var(--stage-talked)' },
-  { key: 'appointment_set', label: '📅 Appointment Set', color: 'var(--stage-appt)' },
-  { key: 'pitched', label: '🎤 Pitched', color: 'var(--stage-pitched)' },
-  { key: 'negotiating', label: '🤝 Negotiating', color: 'var(--stage-negotiating)' },
-  { key: 'closed_won', label: '🏆 Closed Won', color: 'var(--stage-closed)' },
-  { key: 'on_ice', label: '❄️ On Ice', color: 'var(--stage-ice)' },
-  { key: 'moving_on', label: '🚫 Moving On', color: 'var(--stage-gone)' },
+  { key: 'looking_for_dm', label: 'Looking for DM', short: 'Looking for DM', icon: 'search', color: 'var(--stage-looking)' },
+  { key: 'found_dm', label: 'Found DM', short: 'Found DM', icon: 'user-check', color: 'var(--stage-found)' },
+  { key: 'talked_to_dm', label: 'Talked to DM', short: 'Talked to DM', icon: 'message-circle', color: 'var(--stage-talked)' },
+  { key: 'appointment_set', label: 'Appointment Set', short: 'Appt Set', icon: 'calendar-check', color: 'var(--stage-appt)' },
+  { key: 'pitched', label: 'Pitched', short: 'Pitched', icon: 'mic', color: 'var(--stage-pitched)' },
+  { key: 'negotiating', label: 'Negotiating', short: 'Negotiating', icon: 'exchange', color: 'var(--stage-negotiating)' },
+  { key: 'closed_won', label: 'Closed Won', short: 'Closed Won', icon: 'trophy', color: 'var(--stage-closed)' },
+  { key: 'on_ice', label: 'On Ice', short: 'On Ice', icon: 'snowflake', color: 'var(--stage-ice)', park: true },
+  { key: 'moving_on', label: 'Moving On', short: 'Moving On', icon: 'circle-x', color: 'var(--stage-gone)', park: true },
 ];
 const stageInfo = k => STAGES.find(s => s.key === k) || STAGES[0];
 const TP_TYPES = [
-  { key: 'dial', icon: '📞', label: 'Dial' },
-  { key: 'email', icon: '✉️', label: 'Email' },
-  { key: 'text', icon: '💬', label: 'Text' },
-  { key: 'voicemail', icon: '🎙️', label: 'Voicemail' },
+  { key: 'dial', icon: 'phone', label: 'Dial' },
+  { key: 'email', icon: 'mail', label: 'Email' },
+  { key: 'text', icon: 'message-square', label: 'Text' },
+  { key: 'voicemail', icon: 'voicemail', label: 'Voicemail' },
 ];
+const ico = (name, cls = 'ico') => `<svg class="${cls}"><use href="#i-${name}"/></svg>`;
 
 let state = { accounts: [], stats: {}, reminders: [], appointments: [], market: [], voice: [], profile: null, calMonth: null, session: null };
 
@@ -123,22 +126,22 @@ const accName = id => state.accounts.find(a => a.id === id)?.name || '';
 const acctTz = id => state.accounts.find(a => a.id === id)?.timezone || null;
 function sfPill(a, small) {
   if (!a.sf_url) return `<span class="card-name-txt">${esc(a.name)}</span>`;
-  return `<a class="sf-pill" href="${esc(a.sf_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(a.name)} ↗</a>`;
+  return `<a class="sf-pill" href="${esc(a.sf_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(a.name)}${ico('external', 'ico-xs')}</a>`;
 }
 
 // ===== DASHBOARD =====
 function renderDashboard() {
   const h = new Date().getHours();
-  $('greeting').textContent = (h < 12 ? '🌅 Morning' : h < 17 ? '☀️ Afternoon' : '🌙 Evening') + ', Mark — let’s hunt.';
+  $('greeting').textContent = (h < 12 ? 'Morning' : h < 17 ? 'Afternoon' : 'Evening') + ', Mark — let’s hunt.';
 
   // reminders
   const now = new Date();
   $('dash-reminders').innerHTML = state.reminders.length ? state.reminders.map(r => {
     const overdue = new Date(r.due_at) < now;
     return `<div class="row ${overdue ? 'overdue' : ''}">
-      <button class="check-btn" onclick="completeReminder('${r.id}')" title="Done">✓</button>
+      <button class="check-btn" onclick="completeReminder('${r.id}')" title="Mark done">${ico('check', 'ico-xs')}</button>
       <div class="row-main">${esc(r.title)}${r.account_id ? `<div class="row-sub">${esc(accName(r.account_id))}</div>` : ''}</div>
-      <span class="row-time">${overdue ? '⚠️ ' : ''}${fmtDT(r.due_at)}</span>
+      <span class="row-time">${fmtDT(r.due_at)}</span>
     </div>`;
   }).join('') : '<div class="empty">Nothing pending. Set one so future-you stays sharp.</div>';
 
@@ -147,7 +150,7 @@ function renderDashboard() {
   $('dash-appts').innerHTML = week.length ? week.map(a => {
     const tz = acctTz(a.account_id);
     return `<div class="row">
-      <span>${a.kind === 'in_market' ? '🚗' : a.kind === 'call' ? '📞' : '📌'}</span>
+      <span class="row-ico">${ico(a.kind === 'in_market' ? 'car' : a.kind === 'call' ? 'phone' : 'pin')}</span>
       <div class="row-main">${esc(a.title)}${a.account_id ? `<div class="row-sub">${esc(accName(a.account_id))}</div>` : ''}
         <div class="row-sub">${dualT(a.starts_at, tz)}</div></div>
       <span class="row-time">${new Date(a.starts_at).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: MY_TZ })}</span>
@@ -163,10 +166,10 @@ function renderDashboard() {
   }).filter(x => x.days >= 4).sort((x, y) => y.days - x.days).slice(0, 8);
   $('dash-attention').innerHTML = attention.length ? attention.map(({ a, st, days }) => `
     <div class="row" style="cursor:pointer" onclick="openDrawer('${a.id}')">
-      <span>${stageInfo(a.stage).label.split(' ')[0]}</span>
-      <div class="row-main">${esc(a.name)}<div class="row-sub">${stageInfo(a.stage).label.slice(2).trim()} · ${st.total_touchpoints || 0} touchpoints</div></div>
+      <span class="row-ico" style="color:${stageInfo(a.stage).color}">${ico(stageInfo(a.stage).icon)}</span>
+      <div class="row-main">${esc(a.name)}<div class="row-sub">${stageInfo(a.stage).label} · ${st.total_touchpoints || 0} touchpoints</div></div>
       <span class="row-time" style="color:var(--amber)">${days}d quiet</span>
-    </div>`).join('') : '<div class="empty">Everything’s been touched recently. You’re on it. 🔥</div>';
+    </div>`).join('') : '<div class="empty">Everything’s been touched recently. You’re on it.</div>';
 
   // stats
   const totalTp = Object.values(state.stats).reduce((s, x) => s + (+x.total_touchpoints || 0), 0);
@@ -183,33 +186,33 @@ function renderDashboard() {
 
 async function completeReminder(id) {
   await sb.from('reminders').update({ done: true }).eq('id', id);
-  toast('✅ Reminder done');
+  toast('Reminder done');
   await loadAll();
 }
 
 $('test-digest-btn').onclick = async () => {
-  const btn = $('test-digest-btn'); btn.disabled = true; btn.textContent = '📧 Sending…';
+  const btn = $('test-digest-btn'); btn.disabled = true; btn.textContent = 'Sending…';
   try {
     const { data: { session } } = await sb.auth.getSession();
     const r = await fetch('/api/cron-digest?force=1', { headers: { Authorization: 'Bearer ' + session.access_token } });
     const out = await r.json();
-    if (out.sent) toast('📧 Sent — check your inbox');
-    else if (out.reason === 'RESEND_API_KEY not set') toast('⚠️ Add RESEND_API_KEY in Vercel first');
+    if (out.sent) toast('Sent — check your inbox');
+    else if (out.reason === 'RESEND_API_KEY not set') toast('Add RESEND_API_KEY in Vercel first');
     else if (out.reason) toast('Nothing to report right now');
-    else toast('⚠️ ' + JSON.stringify(out.error || out).slice(0, 60));
-  } catch (e) { toast('⚠️ ' + e.message); }
-  btn.disabled = false; btn.textContent = '📧 Email me this';
+    else toast(JSON.stringify(out.error || out).slice(0, 60));
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.innerHTML = ico('inbox') + ' Email me this';
 };
 
 // ===== BRIEFING =====
 $('briefing-btn').onclick = async () => {
-  const btn = $('briefing-btn'); btn.disabled = true; btn.textContent = '🔮 Thinking…';
+  const btn = $('briefing-btn'); btn.disabled = true; btn.textContent = 'Thinking…';
   try {
     const out = await callAI('briefing', {});
     $('briefing-box').textContent = out;
     $('briefing-box').classList.remove('hidden');
-  } catch (e) { toast('⚠️ ' + e.message); }
-  btn.disabled = false; btn.textContent = '✨ Morning Briefing';
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.innerHTML = ico('sparkles') + ' Morning Briefing';
 };
 
 // ===== PIPELINE BOARD =====
@@ -217,9 +220,15 @@ function renderBoard() {
   const q = ($('pipeline-search').value || '').toLowerCase();
   $('board').innerHTML = STAGES.map(s => {
     const accs = state.accounts.filter(a => a.stage === s.key && (!q || a.name.toLowerCase().includes(q) || (a.dm_name || '').toLowerCase().includes(q)));
-    return `<div class="col" data-glow style="--glow-c:${s.color}">
-      <div class="col-head"><span style="color:${s.color}">${s.label}</span><span class="count">${accs.length}</span></div>
-      ${accs.map(a => cardHTML(a, s)).join('')}
+    return `<div class="col ${s.park ? 'col-park' : ''}" style="--stage-c:${s.color}">
+      <div class="col-head" title="${esc(s.label)}">
+        <div class="col-head-top">
+          <span class="col-icon">${ico(s.icon)}</span>
+          <span class="count">${accs.length}</span>
+        </div>
+        <span class="col-label">${esc(s.short)}</span>
+      </div>
+      <div class="col-body">${accs.map(a => cardHTML(a, s)).join('') || '<div class="col-empty"></div>'}</div>
     </div>`;
   }).join('');
 }
@@ -227,28 +236,30 @@ $('pipeline-search').addEventListener('input', renderBoard);
 
 function cardHTML(a, s) {
   const st = state.stats[a.id] || {};
-  const last = st.last_touch_at || a.created_at;
-  const d = daysAgo(last);
-  return `<div class="card" style="--stage-c:${s.color}" onclick="openDrawer('${a.id}')">
-    <div class="days-chip ${d >= 4 ? 'stale' : ''}">${d}d</div>
-    <div class="card-name">${sfPill(a)}</div>
-    <div class="card-sub">${a.dm_name ? '👤 ' + esc(a.dm_name) : 'No DM yet'}${a.city ? ' · ' + esc(a.city) : ''}</div>
-    <div class="tp-badges">
-      <span class="tp-badge total">Σ ${st.total_touchpoints || 0}</span>
-      <span class="tp-badge">📞${st.dials || 0}</span>
-      <span class="tp-badge">✉️${st.emails || 0}</span>
-      <span class="tp-badge">💬${st.texts || 0}</span>
-      <span class="tp-badge">🎙️${st.voicemails || 0}</span>
+  const d = daysAgo(st.last_touch_at || a.created_at);
+  const counts = [st.dials, st.emails, st.texts, st.voicemails];
+  return `<div class="card" style="--stage-c:${s.color}" onclick="openDrawer('${a.id}')" title="${esc(a.name)}${a.dm_name ? ' · ' + esc(a.dm_name) : ''}">
+    <div class="card-top">
+      <span class="card-name">${esc(a.name)}</span>
+      ${a.sf_url ? `<a class="card-sf" href="${esc(a.sf_url)}" target="_blank" rel="noopener" title="Open in Salesforce" onclick="event.stopPropagation()">${ico('external', 'ico-xs')}</a>` : ''}
+    </div>
+    ${a.dm_name ? `<div class="card-sub">${esc(a.dm_name)}</div>` : ''}
+    <div class="card-meta">
+      <span class="tp-total">${st.total_touchpoints || 0}</span>
+      <span class="days-chip ${d >= 4 ? 'stale' : ''}">${d}d</span>
+    </div>
+    <div class="tp-strip">
+      ${TP_TYPES.map((t, i) => `<span class="tp-cell ${counts[i] ? '' : 'zero'}" title="${counts[i] || 0} ${t.label}">${ico(t.icon, 'ico-xs')}${counts[i] || 0}</span>`).join('')}
     </div>
     <div class="card-quick">
-      ${TP_TYPES.map(t => `<button class="quick-btn" title="Log ${t.label}" onclick="event.stopPropagation();quickLog('${a.id}','${t.key}')">${t.icon}</button>`).join('')}
+      ${TP_TYPES.map(t => `<button class="quick-btn" title="Log ${t.label}" onclick="event.stopPropagation();quickLog('${a.id}','${t.key}')">${ico(t.icon, 'ico-xs')}</button>`).join('')}
     </div>
   </div>`;
 }
 
 async function quickLog(accountId, type) {
   await sb.from('touchpoints').insert({ account_id: accountId, type });
-  toast(`${TP_TYPES.find(t => t.key === type).icon} ${TP_TYPES.find(t => t.key === type).label} logged`);
+  toast(`${TP_TYPES.find(t => t.key === type).label} logged`);
   await loadAll();
   if (currentDrawerId === accountId) openDrawer(accountId);
 }
@@ -269,26 +280,26 @@ async function openDrawer(id) {
   ]);
 
   const timeline = [
-    ...(tps.data || []).map(t => ({ at: t.occurred_at, c: 'var(--cyan)', txt: `${TP_TYPES.find(x => x.key === t.type)?.icon} ${TP_TYPES.find(x => x.key === t.type)?.label}`, note: t.note })),
-    ...(hist.data || []).map(h => ({ at: h.changed_at, c: stageInfo(h.to_stage).color, txt: `→ ${stageInfo(h.to_stage).label}`, note: h.note })),
+    ...(tps.data || []).map(t => ({ at: t.occurred_at, c: 'var(--cyan)', txt: `${ico(TP_TYPES.find(x => x.key === t.type)?.icon || 'phone', 'ico-xs')} ${TP_TYPES.find(x => x.key === t.type)?.label}`, note: t.note })),
+    ...(hist.data || []).map(h => ({ at: h.changed_at, c: stageInfo(h.to_stage).color, txt: `${ico(stageInfo(h.to_stage).icon, 'ico-xs')} Moved to ${esc(stageInfo(h.to_stage).label)}`, note: h.note })),
   ].sort((x, y) => new Date(y.at) - new Date(x.at)).slice(0, 40);
 
   $('drawer-content').innerHTML = `
     <h2>${sfPill(a)} </h2>
-    <div class="card-sub">${a.dm_name ? '👤 ' + esc(a.dm_name) : 'No DM identified yet'}${a.dm_email ? ' · ✉️ ' + esc(a.dm_email) : ''}${a.city ? ' · 📍 ' + esc(a.city) : ''} · added ${daysAgo(a.created_at)}d ago</div>
-    ${a.timezone && a.timezone !== MY_TZ ? `<div class="tz-banner">🕐 It's <b>${fmtTz(new Date(), a.timezone)} ${abbrOf(a.timezone)}</b> for them right now — ${fmtT(new Date())} ${abbrOf(MY_TZ)} for you</div>` : ''}
+    <div class="card-sub">${a.dm_name ? esc(a.dm_name) : 'No DM identified yet'}${a.dm_email ? ' · ' + esc(a.dm_email) : ''}${a.city ? ' · ' + esc(a.city) : ''} · added ${daysAgo(a.created_at)}d ago</div>
+    ${a.timezone && a.timezone !== MY_TZ ? `<div class="tz-banner">${ico('clock', 'ico-xs')} It's <b>${fmtTz(new Date(), a.timezone)} ${abbrOf(a.timezone)}</b> for them right now — ${fmtT(new Date())} ${abbrOf(MY_TZ)} for you</div>` : ''}
 
     <div class="drawer-section">
       <h4>Stage</h4>
       <div class="stage-pill-row">
-        ${STAGES.map(s => `<button class="stage-pill ${a.stage === s.key ? 'current' : ''}" style="--sp-c:${s.color}" onclick="setStage('${id}','${s.key}')">${s.label}</button>`).join('')}
+        ${STAGES.map(s => `<button class="stage-pill ${a.stage === s.key ? 'current' : ''}" style="--sp-c:${s.color}" onclick="setStage('${id}','${s.key}')">${ico(s.icon, 'ico-xs')}${esc(s.label)}</button>`).join('')}
       </div>
     </div>
 
     <div class="drawer-section">
       <h4>Log a touchpoint — Σ ${st.total_touchpoints || 0} so far</h4>
       <div class="tp-log-row">
-        ${TP_TYPES.map(t => `<button class="tp-log-btn" onclick="quickLog('${id}','${t.key}')"><span>${t.icon}</span>${t.label} · ${st[t.key + 's'] || 0}</button>`).join('')}
+        ${TP_TYPES.map(t => `<button class="tp-log-btn" onclick="quickLog('${id}','${t.key}')">${ico(t.icon)}<span class="tp-log-label">${t.label}</span><span class="tp-log-n">${st[t.key + 's'] || 0}</span></button>`).join('')}
       </div>
       <div style="display:flex;gap:8px;margin-top:10px">
         <input id="tp-note-input" class="input" placeholder="Optional note with next touchpoint… (e.g. 'GK said call back Tues')">
@@ -296,29 +307,29 @@ async function openDrawer(id) {
     </div>
 
     <div class="drawer-section">
-      <h4>Notes on this stage (${stageInfo(a.stage).label.slice(2).trim()})</h4>
+      <h4>Notes on this stage — ${esc(stageInfo(a.stage).label)}</h4>
       <div style="display:flex;gap:8px;margin-bottom:10px">
         <input id="stage-note-input" class="input" placeholder="Add a note…">
         <button class="btn btn-primary" onclick="addStageNote('${id}','${a.stage}')">Add</button>
       </div>
-      ${(notes.data || []).map(n => `<div class="row"><div class="row-main">${esc(n.body)}<div class="row-sub">${stageInfo(n.stage).label} · ${fmtDT(n.created_at)}</div></div></div>`).join('') || '<div class="empty">No notes yet.</div>'}
+      ${(notes.data || []).map(n => `<div class="row"><div class="row-main">${esc(n.body)}<div class="row-sub">${esc(stageInfo(n.stage).label)} · ${fmtDT(n.created_at)}</div></div></div>`).join('') || '<div class="empty">No notes yet.</div>'}
     </div>
 
     <div class="drawer-section">
       <h4>Quick actions</h4>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-ghost" onclick="openReminderModal('${id}')">⏰ Remind me</button>
-        <button class="btn btn-ghost" onclick="openApptModal('${id}')">📅 Book appointment</button>
-        <button class="btn btn-ai" onclick="genForAccount('${id}')">✨ Draft email</button>
-        <button class="btn btn-ghost" onclick="openAccountModal('${id}')">✏️ Edit</button>
-        <button class="btn btn-danger" onclick="deleteAccount('${id}')">🗑️ Delete</button>
+        <button class="btn btn-ghost" onclick="openReminderModal('${id}')">${ico('clock', 'ico-xs')} Remind me</button>
+        <button class="btn btn-ghost" onclick="openApptModal('${id}')">${ico('calendar', 'ico-xs')} Book appointment</button>
+        <button class="btn btn-ai" onclick="genForAccount('${id}')">${ico('sparkles', 'ico-xs')} Draft email</button>
+        <button class="btn btn-ghost" onclick="openAccountModal('${id}')">${ico('pencil', 'ico-xs')} Edit</button>
+        <button class="btn btn-danger" onclick="deleteAccount('${id}')">${ico('trash', 'ico-xs')} Delete</button>
       </div>
     </div>
 
     <div class="drawer-section">
       <h4>Timeline</h4>
       <div class="timeline">
-        ${timeline.map(t => `<div class="tl-item" style="--tl-c:${t.c}"><div>${t.txt}</div>${t.note ? `<div class="tl-note">${esc(t.note)}</div>` : ''}<div class="tl-time">${fmtDT(t.at)}</div></div>`).join('') || '<div class="empty">No activity yet — make the first move. 📞</div>'}
+        ${timeline.map(t => `<div class="tl-item" style="--tl-c:${t.c}"><div>${t.txt}</div>${t.note ? `<div class="tl-note">${esc(t.note)}</div>` : ''}<div class="tl-time">${fmtDT(t.at)}</div></div>`).join('') || '<div class="empty">No activity yet — make the first move.</div>'}
       </div>
     </div>`;
 
@@ -328,7 +339,7 @@ async function openDrawer(id) {
     b.onclick = async () => {
       const note = noteInput.value.trim() || null;
       await sb.from('touchpoints').insert({ account_id: id, type: TP_TYPES[i].key, note });
-      toast(`${TP_TYPES[i].icon} ${TP_TYPES[i].label} logged`);
+      toast(`${TP_TYPES[i].label} logged`);
       await loadAll(); openDrawer(id);
     };
   });
@@ -358,7 +369,7 @@ function closeModal() { $('modal-overlay').classList.add('hidden'); }
 function openAccountModal(id) {
   const a = id ? state.accounts.find(x => x.id === id) : null;
   showModal(`
-    <h3>${a ? '✏️ Edit Account' : '🆕 New Pursuit'}</h3>
+    <h3>${a ? 'Edit Account' : 'New Pursuit'}</h3>
     <div class="field"><label>Business name</label><input id="m-name" class="input" value="${esc(a?.name || '')}" placeholder="Tony's Pizza"></div>
     <div class="field"><label>Salesforce link (paste it — name becomes the clickable pill)</label><input id="m-sf" class="input" value="${esc(a?.sf_url || '')}" placeholder="https://uber.lightning.force.com/…"></div>
     <div class="field"><label>Decision maker</label><input id="m-dm" class="input" value="${esc(a?.dm_name || '')}" placeholder="Who signs?"></div>
@@ -369,7 +380,7 @@ function openAccountModal(id) {
     </select></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary btn-glow" onclick="saveAccount('${id || ''}')">${a ? 'Save' : 'Start the pursuit 🔥'}</button>
+      <button class="btn btn-primary btn-glow" onclick="saveAccount('${id || ''}')">${a ? 'Save' : 'Start the pursuit'}</button>
     </div>`);
 }
 async function saveAccount(id) {
@@ -377,7 +388,7 @@ async function saveAccount(id) {
   if (!row.name) return toast('Name it first');
   if (id) await sb.from('accounts').update(row).eq('id', id);
   else await sb.from('accounts').insert(row);
-  closeModal(); toast(id ? 'Saved' : '🔥 New pursuit started'); await loadAll();
+  closeModal(); toast(id ? 'Saved' : 'New pursuit started'); await loadAll();
   if (id && currentDrawerId === id) openDrawer(id);
 }
 
@@ -385,7 +396,7 @@ function openReminderModal(accountId) {
   const opts = state.accounts.filter(a => !['closed_won', 'moving_on'].includes(a.stage)).map(a => `<option value="${a.id}" ${a.id === accountId ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
   const dt = new Date(Date.now() + 3600000); dt.setMinutes(0);
   showModal(`
-    <h3>⏰ New Reminder</h3>
+    <h3>New Reminder</h3>
     <div class="field"><label>What</label><input id="m-rtitle" class="input" placeholder="Call Tony back about the demo"></div>
     <div class="field"><label>When <span class="tz-tag">your time (${abbrOf(MY_TZ)})</span></label><input id="m-rdue" class="input" type="datetime-local" value="${isoToWall(dt.toISOString(), MY_TZ)}"></div>
     <div class="field"><label>Account (optional)</label><select id="m-racct" class="input"><option value="">— none —</option>${opts}</select></div>
@@ -397,17 +408,17 @@ function openReminderModal(accountId) {
 async function saveReminder() {
   const title = $('m-rtitle').value.trim(); if (!title) return toast('Give it a title');
   await sb.from('reminders').insert({ title, due_at: wallToISO($('m-rdue').value, MY_TZ), account_id: $('m-racct').value || null });
-  closeModal(); toast('⏰ Reminder set'); await loadAll();
+  closeModal(); toast('Reminder set'); await loadAll();
 }
 
 function openApptModal(accountId, dateStr) {
   const opts = state.accounts.map(a => `<option value="${a.id}" ${a.id === accountId ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
   const base = dateStr ? `${dateStr}T10:00` : isoToWall(new Date(Date.now() + 86400000).toISOString(), MY_TZ).slice(0, 11) + '10:00';
   showModal(`
-    <h3>📅 New Appointment</h3>
+    <h3>New Appointment</h3>
     <div class="field"><label>Title</label><input id="m-atitle" class="input" placeholder="Pitch meeting with Tony"></div>
     <div class="field"><label>Type</label><select id="m-akind" class="input">
-      <option value="call">📞 Call</option><option value="in_market">🚗 In-market meeting</option><option value="other">📌 Other</option></select></div>
+      <option value="call">Call</option><option value="in_market">In-market meeting</option><option value="other">Other</option></select></div>
     <div class="field"><label>Account (optional)</label><select id="m-aacct" class="input"><option value="">— none —</option>${opts}</select></div>
     <div class="field"><label>Starts</label>
       <div class="tz-entry">
@@ -435,8 +446,8 @@ function openApptModal(accountId, dateStr) {
     const theirTz = a?.timezone;
     const mine = `${fmtT(iso)} ${abbrOf(MY_TZ)} for you`;
     $('tz-echo').innerHTML = (theirTz && theirTz !== MY_TZ)
-      ? `🕐 ${mine} · ${fmtTz(iso, theirTz)} ${abbrOf(theirTz)} for them`
-      : `🕐 ${mine}`;
+      ? `${ico('clock', 'ico-xs')} ${mine} · ${fmtTz(iso, theirTz)} ${abbrOf(theirTz)} for them`
+      : `${ico('clock', 'ico-xs')} ${mine}`;
   };
   $('m-aacct').onchange = syncZone;
   $('m-astart').oninput = echo;
@@ -450,7 +461,7 @@ async function saveAppt() {
     starts_at: wallToISO($('m-astart').value, $('m-atz').value),
     location: $('m-aloc').value.trim() || null, account_id: $('m-aacct').value || null,
   });
-  closeModal(); toast('📅 Booked'); await loadAll();
+  closeModal(); toast('Booked'); await loadAll();
 }
 
 // ===== CALENDAR =====
@@ -477,8 +488,8 @@ function renderCalendar() {
     const rems = state.reminders.filter(r => ymdTz(r.due_at, MY_TZ) === iso);
     cells.push(`<div class="cal-cell ${d.getMonth() !== m ? 'other-month' : ''} ${ds === todayStr ? 'today' : ''}" onclick="dayClick('${iso}')">
       <div class="d">${d.getDate()}</div>
-      ${appts.slice(0, 3).map(a => `<div class="cal-evt ${a.kind}" title="${esc(dualT(a.starts_at, acctTz(a.account_id)))}">${fmtT(a.starts_at)} ${esc(a.title)}</div>`).join('')}
-      ${rems.slice(0, 2).map(r => `<div class="cal-evt rem">⏰ ${esc(r.title)}</div>`).join('')}
+      ${appts.slice(0, 3).map(a => `<div class="cal-evt ${a.kind}" title="${esc(a.title)} — ${esc(dualT(a.starts_at, acctTz(a.account_id)))}"><b>${fmtT(a.starts_at)}</b> ${esc(a.title)}</div>`).join('')}
+      ${rems.slice(0, 2).map(r => `<div class="cal-evt rem" title="${esc(r.title)}">${esc(r.title)}</div>`).join('')}
       ${appts.length + rems.length > 5 ? `<div class="cal-evt other">+${appts.length + rems.length - 5} more</div>` : ''}
     </div>`);
   }
@@ -491,10 +502,10 @@ function dayClick(iso) {
   const el = $('cal-day-detail');
   el.classList.remove('hidden');
   el.innerHTML = `<h3>${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
-    ${appts.map(a => `<div class="row"><span>${a.kind === 'in_market' ? '🚗' : '📞'}</span><div class="row-main">${esc(a.title)}${a.location ? `<div class="row-sub">📍 ${esc(a.location)}</div>` : ''}${a.account_id ? `<div class="row-sub">${esc(accName(a.account_id))}</div>` : ''}<div class="row-sub">${dualT(a.starts_at, acctTz(a.account_id))}</div></div><button class="btn btn-danger" style="padding:4px 10px" onclick="delAppt('${a.id}','${iso}')">✕</button></div>`).join('')}
-    ${rems.map(r => `<div class="row"><span>⏰</span><div class="row-main">${esc(r.title)}</div><span class="row-time">${fmtT(r.due_at)}</span></div>`).join('')}
+    ${appts.map(a => `<div class="row"><span class="row-ico">${ico(a.kind === 'in_market' ? 'car' : 'phone')}</span><div class="row-main">${esc(a.title)}${a.location ? `<div class="row-sub">${esc(a.location)}</div>` : ''}${a.account_id ? `<div class="row-sub">${esc(accName(a.account_id))}</div>` : ''}<div class="row-sub">${dualT(a.starts_at, acctTz(a.account_id))}</div></div><button class="btn btn-danger" style="padding:4px 10px" onclick="delAppt('${a.id}','${iso}')">${ico('x', 'ico-xs')}</button></div>`).join('')}
+    ${rems.map(r => `<div class="row"><span class="row-ico">${ico('clock')}</span><div class="row-main">${esc(r.title)}</div><span class="row-time">${fmtT(r.due_at)}</span></div>`).join('')}
     ${!appts.length && !rems.length ? '<div class="empty">Nothing this day.</div>' : ''}
-    <button class="btn btn-primary btn-glow" style="margin-top:10px" onclick="openApptModal(null,'${iso}')">+ Add appointment</button>`;
+    <button class="btn btn-primary btn-glow" style="margin-top:10px" onclick="openApptModal(null,'${iso}')">${ico('plus', 'ico-xs')} Add appointment</button>`;
 }
 async function delAppt(id, iso) {
   await sb.from('appointments').delete().eq('id', id);
@@ -505,15 +516,15 @@ async function delAppt(id, iso) {
 function renderMarket() {
   $('market-list').innerHTML = state.market.length ? state.market.map(m => `
     <div class="panel glow-hover market-card">
-      <h3>📊 ${esc(m.name)}</h3>
+      <h3>${ico('file')} ${esc(m.name)}</h3>
       <div class="market-meta">${m.market ? esc(m.market) + ' · ' : ''}${fmtDT(m.uploaded_at)} · ${(m.content.length / 1024).toFixed(1)}kb</div>
       <pre>${esc(m.content.slice(0, 400))}</pre>
-      <button class="btn btn-danger" style="margin-top:10px" onclick="delMarket('${m.id}')">🗑️ Remove</button>
+      <button class="btn btn-danger" style="margin-top:10px" onclick="delMarket('${m.id}')">${ico('trash', 'ico-xs')} Remove</button>
     </div>`).join('') : '<div class="empty">No market data yet. Add the spreadsheets Uber sends you and Claude will weaponize them in your emails.</div>';
 }
 function openMarketModal() {
   showModal(`
-    <h3>📊 Add Market Data</h3>
+    <h3>Add Market Data</h3>
     <div class="field"><label>Name</label><input id="m-mkname" class="input" placeholder="Q3 Columbus Restaurant Report"></div>
     <div class="field"><label>Market</label><input id="m-mkmarket" class="input" placeholder="Columbus, OH"></div>
     <div class="field"><label>Upload CSV / text file</label><input id="m-mkfile" class="input" type="file" accept=".csv,.txt,.tsv"></div>
@@ -530,7 +541,7 @@ async function saveMarket() {
   if (f) content = await f.text();
   if (!content) return toast('Upload or paste some data');
   await sb.from('market_data').insert({ name, market: $('m-mkmarket').value.trim() || null, content: content.slice(0, 100000) });
-  closeModal(); toast('📊 Market data added'); await loadAll();
+  closeModal(); toast('Market data added'); await loadAll();
 }
 async function delMarket(id) {
   await sb.from('market_data').delete().eq('id', id);
@@ -542,9 +553,9 @@ function renderAIStudio() {
   $('voice-samples').innerHTML = state.voice.length ? state.voice.map(v => `
     <div class="row voice-sample-row">
       <div class="row-main">${esc(v.label || 'Sample')}<div class="row-sub">${esc(v.body.slice(0, 80))}…</div></div>
-      <button class="btn btn-danger" style="padding:4px 10px" onclick="delVoice('${v.id}')">✕</button>
+      <button class="btn btn-danger" style="padding:4px 10px" onclick="delVoice('${v.id}')">${ico('x', 'ico-xs')}</button>
     </div>`).join('') : '<div class="empty">No samples yet — paste a few real emails you’ve sent.</div>';
-  $('voice-status').textContent = state.profile?.style_notes ? '🧠 Voice trained ' + fmtDT(state.profile.updated_at) : '';
+  $('voice-status').textContent = state.profile?.style_notes ? 'Voice trained ' + fmtDT(state.profile.updated_at) : '';
 
   const activeAccs = state.accounts.filter(a => !['closed_won', 'moving_on'].includes(a.stage));
   $('gen-account').innerHTML = '<option value="">Pick an account…</option>' + activeAccs.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
@@ -552,7 +563,7 @@ function renderAIStudio() {
 }
 function openVoiceModal() {
   showModal(`
-    <h3>🎙️ Add Email Sample</h3>
+    <h3>Add Email Sample</h3>
     <div class="field"><label>Label (optional)</label><input id="m-vlabel" class="input" placeholder="Follow-up that got a reply"></div>
     <div class="field"><label>The email you actually sent</label><textarea id="m-vbody" class="input" rows="10" placeholder="Paste the whole email…"></textarea></div>
     <div class="modal-actions">
@@ -563,19 +574,19 @@ function openVoiceModal() {
 async function saveVoice() {
   const body = $('m-vbody').value.trim(); if (!body) return toast('Paste the email');
   await sb.from('voice_samples').insert({ label: $('m-vlabel').value.trim() || null, body });
-  closeModal(); toast('🎙️ Sample added'); await loadAll();
+  closeModal(); toast('Sample added'); await loadAll();
 }
 async function delVoice(id) { await sb.from('voice_samples').delete().eq('id', id); await loadAll(); }
 
 $('train-btn').onclick = async () => {
   if (!state.voice.length) return toast('Add at least one email sample first');
-  const btn = $('train-btn'); btn.disabled = true; btn.textContent = '🧠 Learning your voice…';
+  const btn = $('train-btn'); btn.disabled = true; btn.textContent = 'Learning your voice…';
   try {
     const notes = await callAI('distill_voice', { samples: state.voice.map(v => v.body) });
     await sb.from('voice_profile').upsert({ id: 1, style_notes: notes, updated_at: new Date().toISOString() });
-    toast('🧠 Voice trained'); await loadAll();
-  } catch (e) { toast('⚠️ ' + e.message); }
-  btn.disabled = false; btn.textContent = '🧠 Train my voice';
+    toast('Voice trained'); await loadAll();
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.innerHTML = ico('cpu') + ' Train my voice';
 };
 
 $('gen-goal').onchange = () => $('gen-custom').classList.toggle('hidden', $('gen-goal').value !== 'custom');
@@ -592,7 +603,7 @@ $('gen-btn').onclick = async () => {
   const a = state.accounts.find(x => x.id === accId);
   const st = state.stats[accId] || {};
   const mkt = state.market.find(m => m.id === $('gen-market').value);
-  const btn = $('gen-btn'); btn.disabled = true; btn.textContent = '🔮 Writing…';
+  const btn = $('gen-btn'); btn.disabled = true; btn.textContent = 'Writing…';
   try {
     const email = await callAI('generate_email', {
       account: { name: a.name, dm_name: a.dm_name, city: a.city, stage: a.stage, touchpoints: st, notes: a.notes },
@@ -604,8 +615,8 @@ $('gen-btn').onclick = async () => {
     });
     $('gen-output').value = email;
     $('gen-output-wrap').classList.remove('hidden');
-  } catch (e) { toast('⚠️ ' + e.message); }
-  btn.disabled = false; btn.textContent = '✨ Generate Email';
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.innerHTML = ico('sparkles') + ' Generate Email';
 };
 // Claude puts "Subject: ..." on line 1; split it off so the mail client gets a real subject.
 function splitDraft(raw) {
@@ -624,7 +635,7 @@ $('open-mail-btn').onclick = async () => {
   // Some mail clients silently truncate very long mailto URLs — copy as a safety net.
   if (href.length > 1800) {
     await navigator.clipboard.writeText($('gen-output').value);
-    toast('📋 Draft copied too — it’s long, paste if the body looks cut off');
+    toast('Draft copied too — it’s long, paste if the body looks cut off');
   }
   window.location.href = href;
 
@@ -634,11 +645,11 @@ $('open-mail-btn').onclick = async () => {
   }
 };
 
-$('copy-email-btn').onclick = () => { navigator.clipboard.writeText($('gen-output').value); toast('📋 Copied'); };
+$('copy-email-btn').onclick = () => { navigator.clipboard.writeText($('gen-output').value); toast('Copied'); };
 $('log-email-btn').onclick = async () => {
   navigator.clipboard.writeText($('gen-output').value);
   const accId = $('gen-account').value;
-  if (accId) { await sb.from('touchpoints').insert({ account_id: accId, type: 'email', note: 'AI-drafted email' }); toast('📋 Copied + ✉️ logged'); await loadAll(); }
+  if (accId) { await sb.from('touchpoints').insert({ account_id: accId, type: 'email', note: 'AI-drafted email' }); toast('Copied + logged'); await loadAll(); }
 };
 
 // ===== AI CALL =====

@@ -7,9 +7,9 @@ const FROM = process.env.DIGEST_FROM || 'Pursuit Wizard <onboarding@resend.dev>'
 const APP_URL = 'https://pursuit-wizard.vercel.app';
 
 const STAGE_LABEL = {
-  looking_for_dm: '🔎 Looking for DM', found_dm: '🎯 Found DM', talked_to_dm: '🗣️ Talked to DM',
-  appointment_set: '📅 Appointment Set', pitched: '🎤 Pitched', negotiating: '🤝 Negotiating',
-  closed_won: '🏆 Closed Won', on_ice: '❄️ On Ice', moving_on: '🚫 Moving On',
+  looking_for_dm: 'Looking for DM', found_dm: 'Found DM', talked_to_dm: 'Talked to DM',
+  appointment_set: 'Appointment Set', pitched: 'Pitched', negotiating: 'Negotiating',
+  closed_won: 'Closed Won', on_ice: 'On Ice', moving_on: 'Moving On',
 };
 
 const sbGet = async (path) => {
@@ -140,16 +140,16 @@ TIMEZONE — this matters, get it right. Mark works in ${abbr(TZ)}. Most of his 
     const remRows = dueReminders.map(r => {
       const od = new Date(r.due_at) < now;
       return card(`<b>${esc(r.title)}</b>${r.account_id ? ` <span style="color:#b5bac1">· ${esc(nameOf(r.account_id))}</span>` : ''}<br>
-        <span style="color:${od ? '#f23f43' : '#80848e'};font-size:12px">${od ? '⚠️ OVERDUE — ' : ''}due ${fmtT(r.due_at)}</span>`, od ? '#f23f43' : '#00e5ff');
+        <span style="color:${od ? '#f23f43' : '#80848e'};font-size:12px">${od ? 'OVERDUE — ' : ''}due ${fmtT(r.due_at)}</span>`, od ? '#f23f43' : '#00e5ff');
     });
     const apptRows = [...todayAppts, ...upcomingAppts].map(a => {
       const isToday = ymd(a.starts_at) === today;
-      return card(`<b>${a.kind === 'in_market' ? '🚗' : a.kind === 'call' ? '📞' : '📌'} ${esc(a.title)}</b>${a.account_id ? ` <span style="color:#b5bac1">· ${esc(nameOf(a.account_id))}</span>` : ''}<br>
-        <span style="color:#80848e;font-size:12px">${isToday ? 'TODAY' : new Date(a.starts_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: TZ })} at ${dualTime(a.starts_at, tzOf(a.account_id))}${a.location ? ' · 📍 ' + esc(a.location) : ''}</span>`,
+      return card(`<b>${esc(a.title)}</b>${a.account_id ? ` <span style="color:#b5bac1">· ${esc(nameOf(a.account_id))}</span>` : ''}<br>
+        <span style="color:#80848e;font-size:12px">${isToday ? 'TODAY' : new Date(a.starts_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: TZ })} at ${dualTime(a.starts_at, tzOf(a.account_id))}${a.location ? ' · ' + esc(a.location) : ''}</span>`,
         a.kind === 'in_market' ? '#ff4dd8' : '#5865f2');
     });
     const staleRows = stale.map(({ a, st, quiet }) => card(
-      `<b>${esc(a.name)}</b>${a.dm_name ? ` <span style="color:#b5bac1">· 👤 ${esc(a.dm_name)}</span>` : ''}<br>
+      `<b>${esc(a.name)}</b>${a.dm_name ? ` <span style="color:#b5bac1">· ${esc(a.dm_name)}</span>` : ''}<br>
        <span style="font-size:12px;color:#80848e">${pill(STAGE_LABEL[a.stage] || a.stage, '#5865f2')}
        &nbsp;Σ ${st.total_touchpoints || 0} touchpoints &nbsp;·&nbsp; <span style="color:#ffb84d">${quiet} days quiet</span></span>`, '#ffb84d'));
     const thawRows = thaw.map(a => card(`<b>${esc(a.name)}</b> — ice expires today, time to re-engage.`, '#9bb0c9'));
@@ -160,20 +160,20 @@ TIMEZONE — this matters, get it right. Mark works in ${abbr(TZ)}. Most of his 
   <tr><td style="padding:26px 26px 4px;font:800 22px Inter,Arial,sans-serif;color:#f2f3f5">🧙 Pursuit Wizard</td></tr>
   <tr><td style="padding:0 26px 4px;font:600 14px Inter,Arial,sans-serif;color:#00e5ff">${localDay(now)}</td></tr>
   <tr><td style="padding:2px 26px 0;font:400 13px Inter,Arial,sans-serif;color:#80848e">${dueReminders.length} due · ${todayAppts.length} appointment${todayAppts.length === 1 ? '' : 's'} today · ${stale.length} gone quiet</td></tr>
-  ${section('⏰ Due today', remRows)}
-  ${section('📅 On the calendar', apptRows)}
-  ${section('🚨 Gone quiet', staleRows)}
-  ${section('❄️ Off ice today', thawRows)}
-  ${coaching ? `<tr><td style="padding:22px 26px 6px;font:700 12px/1 Inter,Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;color:#80848e">✨ Your wingman says</td></tr>
+  ${section('Due today', remRows)}
+  ${section('On the calendar', apptRows)}
+  ${section('Gone quiet', staleRows)}
+  ${section('Off ice today', thawRows)}
+  ${coaching ? `<tr><td style="padding:22px 26px 6px;font:700 12px/1 Inter,Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;color:#80848e">Your wingman says</td></tr>
   <tr><td style="padding:0 26px"><div style="background:linear-gradient(135deg,#7b2ff722,#00c8ff18);border:1px solid #7b2ff755;border-radius:12px;padding:16px 18px;font:400 14px/1.65 Inter,Arial,sans-serif;color:#f2f3f5;white-space:pre-wrap">${esc(coaching)}</div></td></tr>` : ''}
   <tr><td align="center" style="padding:26px">
-    <a href="${APP_URL}" style="display:inline-block;background:#5865f2;color:#fff;text-decoration:none;border-radius:10px;padding:13px 30px;font:700 15px Inter,Arial,sans-serif">Open Pursuit Wizard →</a></td></tr>
-  <tr><td align="center" style="padding:0 26px 24px;font:400 11px Inter,Arial,sans-serif;color:#4e5058">Go get 'em. 🔥</td></tr>
+    <a href="${APP_URL}" style="display:inline-block;background:#5865f2;color:#fff;text-decoration:none;border-radius:10px;padding:13px 30px;font:700 15px Inter,Arial,sans-serif">Open Pursuit Wizard</a></td></tr>
+  <tr><td align="center" style="padding:0 26px 24px;font:400 11px Inter,Arial,sans-serif;color:#4e5058">Go get 'em.</td></tr>
 </table></td></tr></table></body></html>`;
 
     const subject = dueReminders.some(r => new Date(r.due_at) < now)
-      ? `⚠️ ${dueReminders.length} overdue · ${todayAppts.length} appt${todayAppts.length === 1 ? '' : 's'} today`
-      : `🧙 ${now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — ${dueReminders.length} due, ${stale.length} gone quiet`;
+      ? `${dueReminders.length} overdue · ${todayAppts.length} appt${todayAppts.length === 1 ? '' : 's'} today`
+      : `${now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — ${dueReminders.length} due, ${stale.length} gone quiet`;
 
     if (dry) {
       if (req.query.html === '1') { res.setHeader('Content-Type', 'text/html'); return res.status(200).send(html); }
