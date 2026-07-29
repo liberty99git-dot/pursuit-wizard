@@ -23,13 +23,22 @@ const sbGet = async (path) => {
 const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const days = d => Math.max(0, Math.floor((Date.now() - new Date(d)) / 86400000));
 
-// Mark's local timezone — all "today" logic and every time shown (to him AND to Claude)
-// resolves here, so the email and the coaching never disagree about what time it is.
-const TZ = process.env.DIGEST_TZ || 'America/New_York';
+// Mark works Central; most of his book (Cincinnati / N. Kentucky) is Eastern.
+// TZ drives all "today" logic and every time shown to him AND to Claude, so the
+// email and the coaching never disagree. Client-facing times also render in the
+// account's own zone — being an hour off on a restaurant visit is a real cost.
+const TZ = process.env.DIGEST_TZ || 'America/Chicago';
+const ABBR = { 'America/New_York': 'ET', 'America/Chicago': 'CT', 'America/Denver': 'MT', 'America/Los_Angeles': 'PT' };
+const abbr = tz => ABBR[tz] || '';
 const ymd = d => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(d));
 const localTime = d => new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TZ });
+const tzTime = (d, tz) => new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
 const localDateTime = d => new Date(d).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: TZ });
 const localDay = d => new Date(d).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: TZ });
+// "8:00 AM CT · 9:00 AM ET" — collapses when the zones match.
+const dualTime = (d, theirTz) => (!theirTz || theirTz === TZ)
+  ? `${localTime(d)} ${abbr(TZ)}`
+  : `${localTime(d)} ${abbr(TZ)} · ${tzTime(d, theirTz)} ${abbr(theirTz)}`;
 
 export default async function handler(req, res) {
   // Three ways in: Vercel cron's bearer header, a ?key= for manual testing, or a
@@ -65,6 +74,7 @@ export default async function handler(req, res) {
     ]);
     const statMap = Object.fromEntries(stats.map(s => [s.account_id, s]));
     const nameOf = id => accounts.find(a => a.id === id)?.name || '';
+    const tzOf = id => accounts.find(a => a.id === id)?.timezone || null;
 
     const dueReminders = reminders.filter(r => ymd(r.due_at) <= today);
     const todayAppts = appts.filter(a => ymd(a.starts_at) === today);
@@ -87,27 +97,37 @@ export default async function handler(req, res) {
     }
 
     // Claude writes the actual coaching section
-    let coaching = '';
+    let coaching = '', coachErr = null;
     try {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-5',
-          max_tokens: 600,
-          system: `You are Mark's pipeline wingman. He's an Uber Eats AE pursuing Midwest restaurants via Salesforce + Dialpad. Write the coaching section of his morning email. Be specific and name accounts. For each account that needs attention, say which touchpoint type to use (dial / email / text / voicemail) and why. Close with one short motivating line. Under 200 words. Plain prose, short paragraphs, no markdown, no headers, no bullet characters. All times given to you are already in Mark's local timezone — quote them exactly as written and never convert them.`,
+          // max_tokens caps thinking AND text together, and Sonnet 5 thinks by
+          // default — 600 was being spent entirely on thinking, returning no text.
+          max_tokens: 2500,
+          thinking: { type: 'adaptive' },
+          output_config: { effort: 'low' },
+          system: `You are Mark's pipeline wingman. He's an Uber Eats AE pursuing Midwest restaurants via Salesforce + Dialpad. Write the coaching section of his morning email. Be specific and name accounts. For each account that needs attention, say which touchpoint type to use (dial / email / text / voicemail) and why. Close with one short motivating line. Under 200 words. Plain prose, short paragraphs, no markdown, no headers, no bullet characters.
+
+TIMEZONE — this matters, get it right. Mark works in ${abbr(TZ)}. Most of his restaurants are in ${abbr('America/New_York')} (Cincinnati / Northern Kentucky), an hour ahead of him. Every time below is pre-formatted and labeled with its zone; quote them exactly as written and never convert or re-label them. When you suggest a calling window, reason in the RESTAURANT's clock — their lunch rush, their prep time, their slow afternoon — then state it in both zones, e.g. "call at 1:30 PM ${abbr(TZ)} / 2:30 PM ET, once their lunch rush clears."`,
           messages: [{
             role: 'user', content:
-              `Today is ${localDay(now)}. Current local time: ${localTime(now)}.\n` +
-              `Due/overdue reminders: ${JSON.stringify(dueReminders.map(r => ({ title: r.title, account: nameOf(r.account_id), due: localDateTime(r.due_at), overdue: new Date(r.due_at) < now })))}\n` +
-              `Today's appointments: ${JSON.stringify(todayAppts.map(a => ({ title: a.title, kind: a.kind, at: localTime(a.starts_at), location: a.location, account: nameOf(a.account_id) })))}\n` +
-              `Gone quiet: ${JSON.stringify(stale.map(x => ({ name: x.a.name, stage: STAGE_LABEL[x.a.stage] || x.a.stage, dm: x.a.dm_name, touchpoints: x.st.total_touchpoints || 0, days_quiet: x.quiet })))}\n` +
+              `Today is ${localDay(now)}. Right now it is ${localTime(now)} ${abbr(TZ)} where Mark is.\n` +
+              `Due/overdue reminders: ${JSON.stringify(dueReminders.map(r => ({ title: r.title, account: nameOf(r.account_id), due: `${localDateTime(r.due_at)} ${abbr(TZ)}`, overdue: new Date(r.due_at) < now })))}\n` +
+              `Today's appointments: ${JSON.stringify(todayAppts.map(a => ({ title: a.title, kind: a.kind, at: dualTime(a.starts_at, tzOf(a.account_id)), location: a.location, account: nameOf(a.account_id) })))}\n` +
+              `Gone quiet: ${JSON.stringify(stale.map(x => ({ name: x.a.name, stage: STAGE_LABEL[x.a.stage] || x.a.stage, dm: x.a.dm_name, city: x.a.city, their_timezone: abbr(x.a.timezone), local_time_there_now: tzTime(now, x.a.timezone || TZ), touchpoints: x.st.total_touchpoints || 0, days_quiet: x.quiet })))}\n` +
               `Ice expiring today: ${JSON.stringify(thaw.map(a => a.name))}`,
           }],
         }),
       });
-      if (r.ok) coaching = (await r.json()).content.map(c => c.text || '').join('');
-    } catch { /* email still goes out without coaching */ }
+      if (r.ok) {
+        const j = await r.json();
+        coaching = (j.content || []).map(c => c.text || '').join('');
+        if (!coaching) coachErr = `empty: stop=${j.stop_reason} blocks=${JSON.stringify((j.content || []).map(c => c.type))} usage=${JSON.stringify(j.usage)}`;
+      } else coachErr = `${r.status} ${(await r.text()).slice(0, 300)}`;
+    } catch (e) { coachErr = e.message; /* email still goes out without coaching */ }
 
     const fmtT = localTime;
     const section = (title, rows) => rows.length ? `
@@ -125,7 +145,7 @@ export default async function handler(req, res) {
     const apptRows = [...todayAppts, ...upcomingAppts].map(a => {
       const isToday = ymd(a.starts_at) === today;
       return card(`<b>${a.kind === 'in_market' ? '🚗' : a.kind === 'call' ? '📞' : '📌'} ${esc(a.title)}</b>${a.account_id ? ` <span style="color:#b5bac1">· ${esc(nameOf(a.account_id))}</span>` : ''}<br>
-        <span style="color:#80848e;font-size:12px">${isToday ? 'TODAY' : new Date(a.starts_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: TZ })} at ${fmtT(a.starts_at)}${a.location ? ' · 📍 ' + esc(a.location) : ''}</span>`,
+        <span style="color:#80848e;font-size:12px">${isToday ? 'TODAY' : new Date(a.starts_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: TZ })} at ${dualTime(a.starts_at, tzOf(a.account_id))}${a.location ? ' · 📍 ' + esc(a.location) : ''}</span>`,
         a.kind === 'in_market' ? '#ff4dd8' : '#5865f2');
     });
     const staleRows = stale.map(({ a, st, quiet }) => card(
@@ -157,7 +177,7 @@ export default async function handler(req, res) {
 
     if (dry) {
       if (req.query.html === '1') { res.setHeader('Content-Type', 'text/html'); return res.status(200).send(html); }
-      return res.status(200).json({ dry: true, subject, coaching, counts: { dueReminders: dueReminders.length, todayAppts: todayAppts.length, stale: stale.length, thaw: thaw.length } });
+      return res.status(200).json({ dry: true, subject, coaching, coachErr, counts: { dueReminders: dueReminders.length, todayAppts: todayAppts.length, stale: stale.length, thaw: thaw.length } });
     }
     if (!RESEND_KEY) return res.status(200).json({ sent: false, reason: 'RESEND_API_KEY not set', subject, preview: coaching });
 

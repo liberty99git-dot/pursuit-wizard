@@ -16,6 +16,8 @@ create table accounts (
   dm_name text,
   dm_email text,
   city text,
+  -- Mark works Central; most of his book (Cincinnati / N. Kentucky) is Eastern.
+  timezone text not null default 'America/New_York',
   notes text,
   ice_until date,
   created_at timestamptz not null default now(),

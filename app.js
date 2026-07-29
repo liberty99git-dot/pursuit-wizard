@@ -26,8 +26,52 @@ let state = { accounts: [], stats: {}, reminders: [], appointments: [], market: 
 
 const $ = id => document.getElementById(id);
 const esc = s => (s ?? '').toString().replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmtDT = d => new Date(d).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-const fmtT = d => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+// ---- Timezone. Mark is Central; most of his book (Cincinnati / N. Kentucky) is Eastern.
+// Any time tied to an account renders in BOTH zones so a meeting is never off by an hour.
+const MY_TZ = 'America/Chicago';
+const ZONES = [
+  { tz: 'America/New_York', abbr: 'ET', label: 'Eastern — Cincinnati, N. Kentucky' },
+  { tz: 'America/Chicago', abbr: 'CT', label: 'Central — my time' },
+  { tz: 'America/Denver', abbr: 'MT', label: 'Mountain' },
+  { tz: 'America/Los_Angeles', abbr: 'PT', label: 'Pacific' },
+];
+const abbrOf = tz => (ZONES.find(z => z.tz === tz) || ZONES[1]).abbr;
+
+const fmtDT = d => new Date(d).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: MY_TZ });
+const fmtT = d => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: MY_TZ });
+const fmtTz = (d, tz) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz });
+const ymdTz = (d, tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(d));
+
+// "10:00 AM CT · 11:00 AM ET" — collapses to one zone when they match.
+function dualT(d, theirTz) {
+  const mine = `${fmtT(d)} ${abbrOf(MY_TZ)}`;
+  if (!theirTz || theirTz === MY_TZ) return mine;
+  return `${mine} · ${fmtTz(d, theirTz)} ${abbrOf(theirTz)}`;
+}
+
+// Offset of a zone at a given instant, so a typed wall-clock time can be
+// anchored to the right zone instead of silently meaning Mark's.
+function tzOffsetMs(tz, date) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(date).map(x => [x.type, x.value]));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second) - date.getTime();
+}
+// "2026-07-30T14:00" typed as ET -> correct UTC instant. Second pass settles DST edges.
+function wallToISO(localStr, tz) {
+  if (!localStr) return null;
+  const naive = new Date(localStr + ':00Z');
+  let inst = new Date(naive.getTime() - tzOffsetMs(tz, naive));
+  inst = new Date(naive.getTime() - tzOffsetMs(tz, inst));
+  return inst.toISOString();
+}
+// Inverse: UTC instant -> the datetime-local string showing that wall time in tz.
+function isoToWall(iso, tz) {
+  const d = new Date(iso);
+  return new Date(d.getTime() + tzOffsetMs(tz, d)).toISOString().slice(0, 16);
+}
 const daysAgo = d => Math.max(0, Math.floor((Date.now() - new Date(d)) / 86400000));
 const toast = msg => { const t = $('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.add('hidden'), 2600); };
 
@@ -76,6 +120,7 @@ async function loadAll() {
 function renderAll() { renderDashboard(); renderBoard(); renderCalendar(); renderMarket(); renderAIStudio(); }
 
 const accName = id => state.accounts.find(a => a.id === id)?.name || '';
+const acctTz = id => state.accounts.find(a => a.id === id)?.timezone || null;
 function sfPill(a, small) {
   if (!a.sf_url) return `<span class="card-name-txt">${esc(a.name)}</span>`;
   return `<a class="sf-pill" href="${esc(a.sf_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(a.name)} ↗</a>`;
@@ -99,12 +144,15 @@ function renderDashboard() {
 
   // appointments (today + next 7 days)
   const week = state.appointments.filter(a => { const d = new Date(a.starts_at); return d >= new Date(now.toDateString()) && d < new Date(Date.now() + 7 * 86400000); });
-  $('dash-appts').innerHTML = week.length ? week.map(a => `
-    <div class="row">
+  $('dash-appts').innerHTML = week.length ? week.map(a => {
+    const tz = acctTz(a.account_id);
+    return `<div class="row">
       <span>${a.kind === 'in_market' ? '🚗' : a.kind === 'call' ? '📞' : '📌'}</span>
-      <div class="row-main">${esc(a.title)}${a.account_id ? `<div class="row-sub">${esc(accName(a.account_id))}</div>` : ''}</div>
-      <span class="row-time">${fmtDT(a.starts_at)}</span>
-    </div>`).join('') : '<div class="empty">No appointments this week — go set some.</div>';
+      <div class="row-main">${esc(a.title)}${a.account_id ? `<div class="row-sub">${esc(accName(a.account_id))}</div>` : ''}
+        <div class="row-sub">${dualT(a.starts_at, tz)}</div></div>
+      <span class="row-time">${new Date(a.starts_at).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: MY_TZ })}</span>
+    </div>`;
+  }).join('') : '<div class="empty">No appointments this week — go set some.</div>';
 
   // needs attention: active accounts, no touch in 4+ days (or never), sorted stalest first
   const active = state.accounts.filter(a => !['closed_won', 'moving_on', 'on_ice'].includes(a.stage));
@@ -228,6 +276,7 @@ async function openDrawer(id) {
   $('drawer-content').innerHTML = `
     <h2>${sfPill(a)} </h2>
     <div class="card-sub">${a.dm_name ? '👤 ' + esc(a.dm_name) : 'No DM identified yet'}${a.dm_email ? ' · ✉️ ' + esc(a.dm_email) : ''}${a.city ? ' · 📍 ' + esc(a.city) : ''} · added ${daysAgo(a.created_at)}d ago</div>
+    ${a.timezone && a.timezone !== MY_TZ ? `<div class="tz-banner">🕐 It's <b>${fmtTz(new Date(), a.timezone)} ${abbrOf(a.timezone)}</b> for them right now — ${fmtT(new Date())} ${abbrOf(MY_TZ)} for you</div>` : ''}
 
     <div class="drawer-section">
       <h4>Stage</h4>
@@ -314,14 +363,17 @@ function openAccountModal(id) {
     <div class="field"><label>Salesforce link (paste it — name becomes the clickable pill)</label><input id="m-sf" class="input" value="${esc(a?.sf_url || '')}" placeholder="https://uber.lightning.force.com/…"></div>
     <div class="field"><label>Decision maker</label><input id="m-dm" class="input" value="${esc(a?.dm_name || '')}" placeholder="Who signs?"></div>
     <div class="field"><label>Their email</label><input id="m-dmemail" class="input" type="email" value="${esc(a?.dm_email || '')}" placeholder="tony@tonyspizza.com"></div>
-    <div class="field"><label>City</label><input id="m-city" class="input" value="${esc(a?.city || '')}" placeholder="Columbus, OH"></div>
+    <div class="field"><label>City</label><input id="m-city" class="input" value="${esc(a?.city || '')}" placeholder="Cincinnati, OH"></div>
+    <div class="field"><label>Their timezone</label><select id="m-tz" class="input">
+      ${ZONES.map(z => `<option value="${z.tz}" ${(a?.timezone || 'America/New_York') === z.tz ? 'selected' : ''}>${z.label}</option>`).join('')}
+    </select></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary btn-glow" onclick="saveAccount('${id || ''}')">${a ? 'Save' : 'Start the pursuit 🔥'}</button>
     </div>`);
 }
 async function saveAccount(id) {
-  const row = { name: $('m-name').value.trim(), sf_url: $('m-sf').value.trim() || null, dm_name: $('m-dm').value.trim() || null, dm_email: $('m-dmemail').value.trim() || null, city: $('m-city').value.trim() || null };
+  const row = { name: $('m-name').value.trim(), sf_url: $('m-sf').value.trim() || null, dm_name: $('m-dm').value.trim() || null, dm_email: $('m-dmemail').value.trim() || null, city: $('m-city').value.trim() || null, timezone: $('m-tz').value };
   if (!row.name) return toast('Name it first');
   if (id) await sb.from('accounts').update(row).eq('id', id);
   else await sb.from('accounts').insert(row);
@@ -335,7 +387,7 @@ function openReminderModal(accountId) {
   showModal(`
     <h3>⏰ New Reminder</h3>
     <div class="field"><label>What</label><input id="m-rtitle" class="input" placeholder="Call Tony back about the demo"></div>
-    <div class="field"><label>When</label><input id="m-rdue" class="input" type="datetime-local" value="${new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 16)}"></div>
+    <div class="field"><label>When <span class="tz-tag">your time (${abbrOf(MY_TZ)})</span></label><input id="m-rdue" class="input" type="datetime-local" value="${isoToWall(dt.toISOString(), MY_TZ)}"></div>
     <div class="field"><label>Account (optional)</label><select id="m-racct" class="input"><option value="">— none —</option>${opts}</select></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -344,29 +396,60 @@ function openReminderModal(accountId) {
 }
 async function saveReminder() {
   const title = $('m-rtitle').value.trim(); if (!title) return toast('Give it a title');
-  await sb.from('reminders').insert({ title, due_at: new Date($('m-rdue').value).toISOString(), account_id: $('m-racct').value || null });
+  await sb.from('reminders').insert({ title, due_at: wallToISO($('m-rdue').value, MY_TZ), account_id: $('m-racct').value || null });
   closeModal(); toast('⏰ Reminder set'); await loadAll();
 }
 
 function openApptModal(accountId, dateStr) {
   const opts = state.accounts.map(a => `<option value="${a.id}" ${a.id === accountId ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
-  const base = dateStr ? new Date(dateStr + 'T10:00') : new Date(Date.now() + 86400000);
+  const base = dateStr ? `${dateStr}T10:00` : isoToWall(new Date(Date.now() + 86400000).toISOString(), MY_TZ).slice(0, 11) + '10:00';
   showModal(`
     <h3>📅 New Appointment</h3>
     <div class="field"><label>Title</label><input id="m-atitle" class="input" placeholder="Pitch meeting with Tony"></div>
     <div class="field"><label>Type</label><select id="m-akind" class="input">
       <option value="call">📞 Call</option><option value="in_market">🚗 In-market meeting</option><option value="other">📌 Other</option></select></div>
-    <div class="field"><label>Starts</label><input id="m-astart" class="input" type="datetime-local" value="${new Date(base.getTime() - base.getTimezoneOffset() * 60000).toISOString().slice(0, 16)}"></div>
-    <div class="field"><label>Location (optional)</label><input id="m-aloc" class="input" placeholder="Their restaurant / Zoom / phone"></div>
     <div class="field"><label>Account (optional)</label><select id="m-aacct" class="input"><option value="">— none —</option>${opts}</select></div>
+    <div class="field"><label>Starts</label>
+      <div class="tz-entry">
+        <input id="m-astart" class="input" type="datetime-local" value="${base}">
+        <select id="m-atz" class="input tz-select">${ZONES.map(z => `<option value="${z.tz}">${z.abbr}</option>`).join('')}</select>
+      </div>
+      <div id="tz-echo" class="tz-echo"></div>
+    </div>
+    <div class="field"><label>Location (optional)</label><input id="m-aloc" class="input" placeholder="Their restaurant / Zoom / phone"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary btn-glow" onclick="saveAppt()">Book it</button>
     </div>`);
+
+  // Default the entry zone to the account's, since a meeting time is usually quoted in their clock.
+  const syncZone = () => {
+    const a = state.accounts.find(x => x.id === $('m-aacct').value);
+    $('m-atz').value = a?.timezone || MY_TZ;
+    echo();
+  };
+  const echo = () => {
+    const iso = wallToISO($('m-astart').value, $('m-atz').value);
+    if (!iso) return $('tz-echo').textContent = '';
+    const a = state.accounts.find(x => x.id === $('m-aacct').value);
+    const theirTz = a?.timezone;
+    const mine = `${fmtT(iso)} ${abbrOf(MY_TZ)} for you`;
+    $('tz-echo').innerHTML = (theirTz && theirTz !== MY_TZ)
+      ? `🕐 ${mine} · ${fmtTz(iso, theirTz)} ${abbrOf(theirTz)} for them`
+      : `🕐 ${mine}`;
+  };
+  $('m-aacct').onchange = syncZone;
+  $('m-astart').oninput = echo;
+  $('m-atz').onchange = echo;
+  syncZone();
 }
 async function saveAppt() {
   const title = $('m-atitle').value.trim(); if (!title) return toast('Give it a title');
-  await sb.from('appointments').insert({ title, kind: $('m-akind').value, starts_at: new Date($('m-astart').value).toISOString(), location: $('m-aloc').value.trim() || null, account_id: $('m-aacct').value || null });
+  await sb.from('appointments').insert({
+    title, kind: $('m-akind').value,
+    starts_at: wallToISO($('m-astart').value, $('m-atz').value),
+    location: $('m-aloc').value.trim() || null, account_id: $('m-aacct').value || null,
+  });
   closeModal(); toast('📅 Booked'); await loadAll();
 }
 
@@ -390,11 +473,11 @@ function renderCalendar() {
     const d = new Date(y, m, 1 - startDow + i);
     const ds = d.toDateString();
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const appts = state.appointments.filter(a => new Date(a.starts_at).toDateString() === ds);
-    const rems = state.reminders.filter(r => new Date(r.due_at).toDateString() === ds);
+    const appts = state.appointments.filter(a => ymdTz(a.starts_at, MY_TZ) === iso);
+    const rems = state.reminders.filter(r => ymdTz(r.due_at, MY_TZ) === iso);
     cells.push(`<div class="cal-cell ${d.getMonth() !== m ? 'other-month' : ''} ${ds === todayStr ? 'today' : ''}" onclick="dayClick('${iso}')">
       <div class="d">${d.getDate()}</div>
-      ${appts.slice(0, 3).map(a => `<div class="cal-evt ${a.kind}">${fmtT(a.starts_at)} ${esc(a.title)}</div>`).join('')}
+      ${appts.slice(0, 3).map(a => `<div class="cal-evt ${a.kind}" title="${esc(dualT(a.starts_at, acctTz(a.account_id)))}">${fmtT(a.starts_at)} ${esc(a.title)}</div>`).join('')}
       ${rems.slice(0, 2).map(r => `<div class="cal-evt rem">⏰ ${esc(r.title)}</div>`).join('')}
       ${appts.length + rems.length > 5 ? `<div class="cal-evt other">+${appts.length + rems.length - 5} more</div>` : ''}
     </div>`);
@@ -403,13 +486,12 @@ function renderCalendar() {
 }
 function dayClick(iso) {
   const d = new Date(iso + 'T00:00');
-  const ds = d.toDateString();
-  const appts = state.appointments.filter(a => new Date(a.starts_at).toDateString() === ds);
-  const rems = state.reminders.filter(r => new Date(r.due_at).toDateString() === ds);
+  const appts = state.appointments.filter(a => ymdTz(a.starts_at, MY_TZ) === iso);
+  const rems = state.reminders.filter(r => ymdTz(r.due_at, MY_TZ) === iso);
   const el = $('cal-day-detail');
   el.classList.remove('hidden');
   el.innerHTML = `<h3>${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
-    ${appts.map(a => `<div class="row"><span>${a.kind === 'in_market' ? '🚗' : '📞'}</span><div class="row-main">${esc(a.title)}${a.location ? `<div class="row-sub">📍 ${esc(a.location)}</div>` : ''}${a.account_id ? `<div class="row-sub">${esc(accName(a.account_id))}</div>` : ''}</div><span class="row-time">${fmtT(a.starts_at)}</span><button class="btn btn-danger" style="padding:4px 10px" onclick="delAppt('${a.id}','${iso}')">✕</button></div>`).join('')}
+    ${appts.map(a => `<div class="row"><span>${a.kind === 'in_market' ? '🚗' : '📞'}</span><div class="row-main">${esc(a.title)}${a.location ? `<div class="row-sub">📍 ${esc(a.location)}</div>` : ''}${a.account_id ? `<div class="row-sub">${esc(accName(a.account_id))}</div>` : ''}<div class="row-sub">${dualT(a.starts_at, acctTz(a.account_id))}</div></div><button class="btn btn-danger" style="padding:4px 10px" onclick="delAppt('${a.id}','${iso}')">✕</button></div>`).join('')}
     ${rems.map(r => `<div class="row"><span>⏰</span><div class="row-main">${esc(r.title)}</div><span class="row-time">${fmtT(r.due_at)}</span></div>`).join('')}
     ${!appts.length && !rems.length ? '<div class="empty">Nothing this day.</div>' : ''}
     <button class="btn btn-primary btn-glow" style="margin-top:10px" onclick="openApptModal(null,'${iso}')">+ Add appointment</button>`;
@@ -573,13 +655,21 @@ async function callAI(mode, payload) {
 function briefingContext() {
   const now = new Date();
   const active = state.accounts.filter(a => !['closed_won', 'moving_on'].includes(a.stage));
+  const todayIso = ymdTz(now, MY_TZ);
   return {
-    today: now.toDateString(),
-    reminders: state.reminders.map(r => ({ title: r.title, due: r.due_at, account: accName(r.account_id), overdue: new Date(r.due_at) < now })),
-    appointments: state.appointments.filter(a => new Date(a.starts_at) >= new Date(now.toDateString()) && new Date(a.starts_at) < new Date(Date.now() + 3 * 86400000)).map(a => ({ title: a.title, at: a.starts_at, kind: a.kind, account: accName(a.account_id) })),
+    today: now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', timeZone: MY_TZ }),
+    now_local: `${fmtT(now)} ${abbrOf(MY_TZ)}`,
+    reminders: state.reminders.map(r => ({ title: r.title, due: `${fmtDT(r.due_at)} ${abbrOf(MY_TZ)}`, account: accName(r.account_id), overdue: new Date(r.due_at) < now })),
+    appointments: state.appointments
+      .filter(a => ymdTz(a.starts_at, MY_TZ) >= todayIso && new Date(a.starts_at) < new Date(Date.now() + 3 * 86400000))
+      .map(a => ({ title: a.title, at: dualT(a.starts_at, acctTz(a.account_id)), kind: a.kind, account: accName(a.account_id) })),
     accounts: active.map(a => {
       const st = state.stats[a.id] || {};
-      return { name: a.name, stage: a.stage, dm: a.dm_name, touchpoints: st.total_touchpoints || 0, days_quiet: daysAgo(st.last_touch_at || a.created_at), ice_until: a.ice_until };
+      return {
+        name: a.name, stage: a.stage, dm: a.dm_name, city: a.city,
+        their_timezone: abbrOf(a.timezone), local_time_there_now: fmtTz(now, a.timezone || MY_TZ),
+        touchpoints: st.total_touchpoints || 0, days_quiet: daysAgo(st.last_touch_at || a.created_at), ice_until: a.ice_until,
+      };
     }),
   };
 }

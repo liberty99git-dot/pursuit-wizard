@@ -12,7 +12,10 @@ export default async function handler(req, res) {
   if (!authCheck.ok) return res.status(401).json({ error: 'Invalid session' });
 
   const { mode } = req.body || {};
-  let system, user, maxTokens = 1200;
+  // max_tokens caps thinking AND response text together, and Sonnet 5 thinks by
+  // default — budget for both or the model spends the whole allowance thinking
+  // and returns an empty response.
+  let system, user, maxTokens = 4000;
 
   if (mode === 'distill_voice') {
     system = 'You analyze sales emails and produce a tight style guide capturing the writer\'s voice: tone, sentence length, greeting/sign-off habits, formality, humor, structure, CTA style. Output only the style guide, under 300 words.';
@@ -38,9 +41,11 @@ export default async function handler(req, res) {
       (market_data ? `\nMARKET DATA ("${market_data.name}") — pull specific relevant numbers, keep them accurate:\n${market_data.content}\n` : '');
   } else if (mode === 'briefing') {
     const ctx = req.body._context || {};
-    system = `You are Mark's pipeline wingman. He's an Uber Eats AE pursuing Midwest restaurants. Give him a punchy morning briefing: 1) anything overdue or due today, 2) today's appointments, 3) the 3-5 accounts that most need a touchpoint and what kind (dial/email/text/voicemail) and why, 4) one motivating closer line. Be specific, use account names, keep it under 250 words. Plain text with emoji section markers, no markdown headers.`;
+    system = `You are Mark's pipeline wingman. He's an Uber Eats AE pursuing Midwest restaurants. Give him a punchy morning briefing: 1) anything overdue or due today, 2) today's appointments, 3) the 3-5 accounts that most need a touchpoint and what kind (dial/email/text/voicemail) and why, 4) one motivating closer line. Be specific, use account names, keep it under 250 words. Plain text with emoji section markers, no markdown headers.
+
+TIMEZONE — Mark works Central (CT); most of his restaurants are Eastern (ET, Cincinnati / Northern Kentucky), an hour ahead. Times are pre-formatted and labeled with their zone — quote them exactly, never convert or re-label. When suggesting a calling window, reason in the restaurant's clock (their lunch rush, their slow afternoon) and state it in both zones.`;
     user = `Today: ${ctx.today}\n\nReminders: ${JSON.stringify(ctx.reminders)}\n\nAppointments next 3 days: ${JSON.stringify(ctx.appointments)}\n\nPipeline: ${JSON.stringify(ctx.accounts)}`;
-    maxTokens = 800;
+    maxTokens = 3000;
   } else {
     return res.status(400).json({ error: 'Unknown mode' });
   }
@@ -55,6 +60,8 @@ export default async function handler(req, res) {
     body: JSON.stringify({
       model: 'claude-sonnet-5',
       max_tokens: maxTokens,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'low' },
       system,
       messages: [{ role: 'user', content: user }],
     }),
@@ -64,5 +71,9 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: 'Claude error: ' + err.slice(0, 200) });
   }
   const data = await r.json();
-  return res.status(200).json({ text: data.content.map(c => c.text || '').join('') });
+  const text = (data.content || []).map(c => c.text || '').join('');
+  if (!text) {
+    return res.status(502).json({ error: `Claude returned no text (stop_reason: ${data.stop_reason}). Try again.` });
+  }
+  return res.status(200).json({ text });
 }
