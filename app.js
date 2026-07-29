@@ -76,6 +76,13 @@ function isoToWall(iso, tz) {
   return new Date(d.getTime() + tzOffsetMs(tz, d)).toISOString().slice(0, 16);
 }
 const daysAgo = d => Math.max(0, Math.floor((Date.now() - new Date(d)) / 86400000));
+const fmtD = d => new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: MY_TZ });
+const CLOSEOUT_STEPS = [
+  ['agreement_sent_at', 'file', 'Agreement Sent'],
+  ['agreement_signed_at', 'check', 'Agreement Signed'],
+  ['banking_received_at', 'trophy', 'Banking Received — CW1'],
+];
+const PROMO_LABEL = { none: 'No promo', bogo: 'BOGO', spend_get_off: 'Spend X, Get $ Off', spend_get_free: 'Spend X, Get Free Item', other: 'Other' };
 const toast = msg => { const t = $('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.add('hidden'), 2600); };
 
 // ===== AUTH =====
@@ -120,7 +127,59 @@ async function loadAll() {
   if (!state.calMonth) { const n = new Date(); state.calMonth = [n.getFullYear(), n.getMonth()]; }
   renderAll();
 }
-function renderAll() { renderDashboard(); renderBoard(); renderCalendar(); renderMarket(); renderAIStudio(); }
+function renderAll() { renderDashboard(); renderBoard(); renderCalendar(); renderMarket(); renderAIStudio(); renderReports(); }
+
+// ===== REPORTS =====
+// Buckets are computed on the account's timezone-local calendar day, then
+// walked as plain UTC-midnight dates — good enough for week/month rollups,
+// not meant to be to-the-minute precise.
+function periodBounds(range) {
+  const today = new Date(ymdTz(new Date(), MY_TZ) + 'T00:00:00Z');
+  if (range === 'month') {
+    const y = today.getUTCFullYear(), m = today.getUTCMonth();
+    return { start: new Date(Date.UTC(y, m, 1)), end: new Date(Date.UTC(y, m + 1, 1)), prevStart: new Date(Date.UTC(y, m - 1, 1)), prevEnd: new Date(Date.UTC(y, m, 1)) };
+  }
+  const dow = today.getUTCDay(), toMon = dow === 0 ? 6 : dow - 1;
+  const start = new Date(today); start.setUTCDate(start.getUTCDate() - toMon);
+  const end = new Date(start); end.setUTCDate(end.getUTCDate() + 7);
+  const prevStart = new Date(start); prevStart.setUTCDate(prevStart.getUTCDate() - 7);
+  return { start, end, prevStart, prevEnd: start };
+}
+const inRange = (d, start, end) => { if (!d) return false; const t = new Date(ymdTz(d, MY_TZ) + 'T00:00:00Z'); return t >= start && t < end; };
+
+function renderReports() {
+  const range = state.reportRange || 'week';
+  $('rep-week-btn')?.classList.toggle('active', range === 'week');
+  $('rep-month-btn')?.classList.toggle('active', range === 'month');
+  const { start, end, prevStart, prevEnd } = periodBounds(range);
+  const cw1s = state.accounts.filter(a => inRange(a.banking_received_at, start, end));
+  const cw1sPrev = state.accounts.filter(a => inRange(a.banking_received_at, prevStart, prevEnd));
+  const trips = state.accounts.filter(a => inRange(a.first_trip_at, start, end));
+  const tripsPrev = state.accounts.filter(a => inRange(a.first_trip_at, prevStart, prevEnd));
+  const spend = cw1s.reduce((s, a) => s + (+a.placement_ad_spend || 0), 0);
+  const delta = (n, p) => n === p ? '±0' : (n > p ? '+' : '') + (n - p);
+  const tile = (n, l, d) => `<div class="stat-tile"><div class="num">${n}</div><div class="lbl">${l}</div>${d !== undefined ? `<div class="stat-delta">${d} vs last ${range}</div>` : ''}</div>`;
+  $('rep-stats').innerHTML = [
+    tile(cw1s.length, 'CW1s', delta(cw1s.length, cw1sPrev.length)),
+    tile(trips.length, 'First Trips', delta(trips.length, tripsPrev.length)),
+    tile('$' + spend.toFixed(0), 'Placement Ad Spend'),
+    tile(cw1s.filter(a => a.promo_type && a.promo_type !== 'none').length, 'CW1s With Promo'),
+  ].join('');
+  $('rep-table').innerHTML = cw1s.length ? `<div class="rep-table-wrap"><table class="rep-table"><thead><tr>
+      <th>Account</th><th>CW1 Date</th><th>First Trip</th><th>Onboarding</th><th>Ad Spend</th><th>Promo</th>
+    </tr></thead><tbody>
+    ${cw1s.map(a => `<tr>
+      <td>${esc(a.name)}</td>
+      <td>${fmtD(a.banking_received_at)}</td>
+      <td>${a.first_trip_at ? fmtD(a.first_trip_at) : '<span class="text-faint">pending</span>'}</td>
+      <td>${esc(a.onboarding_specialist || '—')}</td>
+      <td>$${(+a.placement_ad_spend || 0).toFixed(0)}</td>
+      <td>${PROMO_LABEL[a.promo_type] || '—'}${a.promo_note ? ` <span class="text-faint">(${esc(a.promo_note)})</span>` : ''}</td>
+    </tr>`).join('')}
+    </tbody></table></div>` : `<div class="empty">No CW1s this ${range} yet.</div>`;
+}
+$('rep-week-btn')?.addEventListener('click', () => { state.reportRange = 'week'; renderReports(); });
+$('rep-month-btn')?.addEventListener('click', () => { state.reportRange = 'month'; renderReports(); });
 
 const accName = id => state.accounts.find(a => a.id === id)?.name || '';
 const acctTz = id => state.accounts.find(a => a.id === id)?.timezone || null;
@@ -251,10 +310,15 @@ function cardHTML(a, s) {
     <div class="tp-strip">
       ${TP_TYPES.map((t, i) => `<span class="tp-cell ${counts[i] ? '' : 'zero'}" title="${counts[i] || 0} ${t.label}">${ico(t.icon, 'ico-xs')}${counts[i] || 0}</span>`).join('')}
     </div>
+    ${s.key === 'closed_won' ? closeoutMini(a) : ''}
     <div class="card-quick">
       ${TP_TYPES.map(t => `<button class="quick-btn" title="Log ${t.label}" onclick="event.stopPropagation();quickLog('${a.id}','${t.key}')">${ico(t.icon, 'ico-xs')}</button>`).join('')}
     </div>
   </div>`;
+}
+function closeoutMini(a) {
+  const steps = [...CLOSEOUT_STEPS, ['first_trip_at', 'car', 'First Trip']];
+  return `<div class="co-mini">${steps.map(([f, ic, label]) => `<span class="co-dot ${a[f] ? 'done' : ''}" title="${label}${a[f] ? ' — ' + fmtD(a[f]) : ''}">${ico(ic, 'ico-xs')}</span>`).join('')}</div>`;
 }
 
 async function quickLog(accountId, type) {
@@ -295,6 +359,8 @@ async function openDrawer(id) {
         ${STAGES.map(s => `<button class="stage-pill ${a.stage === s.key ? 'current' : ''}" style="--sp-c:${s.color}" onclick="setStage('${id}','${s.key}')">${ico(s.icon, 'ico-xs')}${esc(s.label)}</button>`).join('')}
       </div>
     </div>
+
+    ${a.stage === 'closed_won' ? closeoutSectionHTML(a) : ''}
 
     <div class="drawer-section">
       <h4>Log a touchpoint — Σ ${st.total_touchpoints || 0} so far</h4>
@@ -345,6 +411,48 @@ async function openDrawer(id) {
   });
 }
 function closeDrawer(e) { $('drawer-overlay').classList.add('hidden'); currentDrawerId = null; }
+
+function milestoneStep(id, field, value, icon, label) {
+  const done = !!value;
+  return `<div class="ms-step ${done ? 'done' : ''}">
+    <button class="ms-btn" onclick="stampMilestone('${id}','${field}',${done})" title="${done ? 'Click to clear' : 'Mark done now'}">${ico(done ? 'check' : icon, 'ico-xs')}</button>
+    <div class="ms-label">${esc(label)}</div>
+    <div class="ms-date">${done ? fmtD(value) : '—'}</div>
+  </div>`;
+}
+function closeoutSectionHTML(a) {
+  return `<div class="drawer-section closeout-section">
+    <h4>Close-Out & Onboarding</h4>
+    <div class="milestone-row">${CLOSEOUT_STEPS.map(([f, ic, label]) => milestoneStep(a.id, f, a[f], ic, label)).join('')}</div>
+    <div class="field-row">
+      <label>Onboarding specialist</label>
+      <input id="cw-onboarding" class="input" value="${esc(a.onboarding_specialist || '')}" placeholder="Who's onboarding them?">
+    </div>
+    <div class="milestone-row">${milestoneStep(a.id, 'first_trip_at', a.first_trip_at, 'car', 'First Trip')}</div>
+    <div class="field-row two-col">
+      <div><label>Placement ad spend</label><input id="cw-adspend" type="number" min="0" max="500" step="1" class="input" value="${a.placement_ad_spend ?? 0}"></div>
+      <div><label>Promo type</label><select id="cw-promo" class="input">${Object.entries(PROMO_LABEL).map(([v, l]) => `<option value="${v}" ${a.promo_type === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row"><label>Promo note</label><input id="cw-promonote" class="input" value="${esc(a.promo_note || '')}" placeholder="Optional — define the terms"></div>
+    <button class="btn btn-primary" onclick="saveCloseout('${a.id}')">Save close-out info</button>
+  </div>`;
+}
+async function stampMilestone(id, field, isDone) {
+  if (isDone && !confirm('Clear this milestone?')) return;
+  await sb.from('accounts').update({ [field]: isDone ? null : new Date().toISOString() }).eq('id', id);
+  toast(isDone ? 'Cleared' : 'Marked done');
+  await loadAll(); openDrawer(id);
+}
+async function saveCloseout(id) {
+  const row = {
+    onboarding_specialist: $('cw-onboarding').value.trim() || null,
+    placement_ad_spend: Math.max(0, Math.min(500, +$('cw-adspend').value || 0)),
+    promo_type: $('cw-promo').value,
+    promo_note: $('cw-promonote').value.trim() || null,
+  };
+  await sb.from('accounts').update(row).eq('id', id);
+  toast('Saved'); await loadAll(); openDrawer(id);
+}
 
 async function setStage(id, stage) {
   await sb.from('accounts').update({ stage }).eq('id', id);

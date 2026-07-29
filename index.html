@@ -77,6 +77,7 @@
     <button class="nav-btn" data-tab="pipeline" title="Pipeline"><svg class="ico"><use href="#i-columns"/></svg><label>Pipeline</label></button>
     <button class="nav-btn" data-tab="calendar" title="Calendar"><svg class="ico"><use href="#i-calendar"/></svg><label>Calendar</label></button>
     <button class="nav-btn" data-tab="market" title="Market Data"><svg class="ico"><use href="#i-chart"/></svg><label>Market</label></button>
+    <button class="nav-btn" data-tab="reports" title="Reports"><svg class="ico"><use href="#i-trending"/></svg><label>Reports</label></button>
     <button class="nav-btn" data-tab="ai" title="AI Studio"><svg class="ico"><use href="#i-sparkles"/></svg><label>AI Studio</label></button>
     <div class="sidebar-spacer"></div>
     <button id="logout-btn" class="nav-btn" title="Log out"><svg class="ico"><use href="#i-logout"/></svg><label>Exit</label></button>
@@ -149,6 +150,22 @@
       </header>
       <p class="hint">Drop in the spreadsheets Uber gives you (CSV or pasted text). Claude reads these to make your emails data-savvy and market-specific.</p>
       <div id="market-list" class="market-list"></div>
+    </section>
+
+    <!-- REPORTS -->
+    <section id="tab-reports" class="tab">
+      <header class="tab-header">
+        <h2><svg class="ico"><use href="#i-trending"/></svg> Reports</h2>
+        <div class="header-actions">
+          <button class="btn btn-ghost" id="rep-week-btn">Week</button>
+          <button class="btn btn-ghost" id="rep-month-btn">Month</button>
+        </div>
+      </header>
+      <div id="rep-stats" class="stat-row"></div>
+      <div class="panel glow-hover panel-wide" style="margin-top:16px">
+        <h3>CW1 Detail</h3>
+        <div id="rep-table"></div>
+      </div>
     </section>
 
     <!-- AI STUDIO -->
