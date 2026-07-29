@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pursuit Wizard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧙</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen" class="login-screen hidden">
+  <div class="login-card">
+    <div class="login-logo">🧙</div>
+    <h1>Pursuit <span class="neon">Wizard</span></h1>
+    <p class="login-sub">Your pipeline. Your pursuit. Your magic.</p>
+    <input id="login-email" type="email" placeholder="Email" autocomplete="username">
+    <input id="login-password" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="login-btn" class="btn btn-primary btn-glow">Enter the Tower</button>
+    <div id="login-error" class="login-error hidden"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="app hidden">
+  <nav class="sidebar">
+    <div class="sidebar-logo" title="Pursuit Wizard">🧙</div>
+    <button class="nav-btn active" data-tab="dashboard" title="Dashboard"><span>🏠</span><label>Today</label></button>
+    <button class="nav-btn" data-tab="pipeline" title="Pipeline"><span>🔥</span><label>Pipeline</label></button>
+    <button class="nav-btn" data-tab="calendar" title="Calendar"><span>📅</span><label>Calendar</label></button>
+    <button class="nav-btn" data-tab="market" title="Market Data"><span>📊</span><label>Market</label></button>
+    <button class="nav-btn" data-tab="ai" title="AI Studio"><span>✨</span><label>AI Studio</label></button>
+    <div class="sidebar-spacer"></div>
+    <button id="logout-btn" class="nav-btn" title="Log out"><span>🚪</span><label>Exit</label></button>
+  </nav>
+
+  <main class="main">
+    <!-- DASHBOARD -->
+    <section id="tab-dashboard" class="tab active">
+      <header class="tab-header">
+        <h2 id="greeting">Welcome back</h2>
+        <button id="briefing-btn" class="btn btn-ai btn-glow">✨ Morning Briefing</button>
+      </header>
+      <div id="briefing-box" class="briefing-box hidden"></div>
+      <div class="dash-grid">
+        <div class="panel glow-hover">
+          <h3>⏰ Reminders</h3>
+          <div id="dash-reminders"></div>
+          <button class="btn btn-ghost" onclick="openReminderModal()">+ New reminder</button>
+        </div>
+        <div class="panel glow-hover">
+          <h3>📅 Today &amp; Upcoming</h3>
+          <div id="dash-appts"></div>
+        </div>
+        <div class="panel glow-hover panel-wide">
+          <h3>🚨 Needs Attention</h3>
+          <div id="dash-attention"></div>
+        </div>
+        <div class="panel glow-hover panel-wide">
+          <h3>📈 Pursuit Stats</h3>
+          <div id="dash-stats" class="stat-row"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PIPELINE -->
+    <section id="tab-pipeline" class="tab">
+      <header class="tab-header">
+        <h2>🔥 Pipeline</h2>
+        <div class="header-actions">
+          <input id="pipeline-search" class="search-input" placeholder="🔍 Search accounts…">
+          <button class="btn btn-primary btn-glow" onclick="openAccountModal()">+ New Account</button>
+        </div>
+      </header>
+      <div id="board" class="board"></div>
+    </section>
+
+    <!-- CALENDAR -->
+    <section id="tab-calendar" class="tab">
+      <header class="tab-header">
+        <h2>📅 Calendar</h2>
+        <div class="header-actions">
+          <button class="btn btn-ghost" id="cal-prev">‹</button>
+          <span id="cal-title" class="cal-title"></span>
+          <button class="btn btn-ghost" id="cal-next">›</button>
+          <button class="btn btn-primary btn-glow" onclick="openApptModal()">+ Appointment</button>
+        </div>
+      </header>
+      <div id="calendar" class="calendar"></div>
+      <div id="cal-day-detail" class="panel cal-day-detail hidden"></div>
+    </section>
+
+    <!-- MARKET DATA -->
+    <section id="tab-market" class="tab">
+      <header class="tab-header">
+        <h2>📊 Market Data</h2>
+        <button class="btn btn-primary btn-glow" onclick="openMarketModal()">+ Add Data</button>
+      </header>
+      <p class="hint">Drop in the spreadsheets Uber gives you (CSV or pasted text). Claude reads these to make your emails data-savvy and market-specific.</p>
+      <div id="market-list" class="market-list"></div>
+    </section>
+
+    <!-- AI STUDIO -->
+    <section id="tab-ai" class="tab">
+      <header class="tab-header"><h2>✨ AI Studio</h2></header>
+      <div class="ai-grid">
+        <div class="panel glow-hover">
+          <h3>🎙️ Your Voice</h3>
+          <p class="hint">Paste real emails you've sent. Claude learns your exact tone and writes like you.</p>
+          <div id="voice-samples"></div>
+          <button class="btn btn-ghost" onclick="openVoiceModal()">+ Add email sample</button>
+          <button id="train-btn" class="btn btn-ai btn-glow">🧠 Train my voice</button>
+          <div id="voice-status" class="voice-status"></div>
+        </div>
+        <div class="panel glow-hover">
+          <h3>📝 Email Generator</h3>
+          <select id="gen-account" class="input"></select>
+          <select id="gen-goal" class="input">
+            <option value="intro">Cold intro — first touch</option>
+            <option value="followup">Follow-up — keeping it warm</option>
+            <option value="post_voicemail">Just left a voicemail</option>
+            <option value="appt_confirm">Confirm the appointment</option>
+            <option value="reengage">Re-engage — thaw from ice</option>
+            <option value="data_pitch">Data pitch — hit them with market numbers</option>
+            <option value="custom">🎲 Wing it (custom prompt)</option>
+          </select>
+          <textarea id="gen-custom" class="input hidden" rows="2" placeholder="Tell Claude what you're going for…"></textarea>
+          <select id="gen-market" class="input"><option value="">No market data</option></select>
+          <button id="gen-btn" class="btn btn-ai btn-glow">✨ Generate Email</button>
+          <div id="gen-output-wrap" class="hidden">
+            <textarea id="gen-output" class="input gen-output" rows="12"></textarea>
+            <div class="gen-actions">
+              <button class="btn btn-ghost" id="copy-email-btn">📋 Copy</button>
+              <button class="btn btn-primary" id="log-email-btn">✅ Copy + Log as email touchpoint</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ACCOUNT DRAWER -->
+<div id="drawer-overlay" class="overlay hidden" onclick="closeDrawer(event)">
+  <div class="drawer" onclick="event.stopPropagation()">
+    <div id="drawer-content"></div>
+  </div>
+</div>
+
+<!-- GENERIC MODAL -->
+<div id="modal-overlay" class="overlay hidden" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
