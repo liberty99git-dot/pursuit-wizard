@@ -12,6 +12,30 @@ export default async function handler(req, res) {
   if (!authCheck.ok) return res.status(401).json({ error: 'Invalid session' });
 
   const { mode } = req.body || {};
+
+  // Best-effort scrape so "takeaways from their website" are grounded in the
+  // real page rather than guessed from the domain name. Never fatal.
+  async function siteText(url) {
+    if (!url) return null;
+    const full = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(full, { signal: ctl.signal, redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PursuitWizard/1.0)' } });
+      clearTimeout(timer);
+      if (!r.ok) return `(site returned ${r.status})`;
+      const html = await r.text();
+      return html
+        .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 6000) || '(no readable text)';
+    } catch (e) {
+      return `(could not load site: ${e.name === 'AbortError' ? 'timed out' : e.message})`;
+    }
+  }
   // max_tokens caps thinking AND response text together, and Sonnet 5 thinks by
   // default — budget for both or the model spends the whole allowance thinking
   // and returns an empty response.
@@ -39,6 +63,25 @@ export default async function handler(req, res) {
       (style_notes ? `\nMY VOICE (follow this exactly):\n${style_notes}\n` : '') +
       ((samples || []).length ? `\nEXAMPLES OF MY REAL EMAILS:\n${samples.map((s, i) => `--- ${i + 1} ---\n${s}`).join('\n')}\n` : '') +
       (market_data ? `\nMARKET DATA ("${market_data.name}") — pull specific relevant numbers, keep them accurate:\n${market_data.content}\n` : '');
+  } else if (mode === 'account_summary') {
+    const { account = {}, notes = [], stage_notes = [], market = [] } = req.body;
+    const site = await siteText(account.website);
+    system = `You write the at-a-glance briefing Mark reads right before he dials a restaurant. He is an Uber Eats AE in Cincinnati / Northern Kentucky.
+
+Write four short labeled sections, in this order, plain text with no markdown:
+WHERE THIS STANDS — the stage, how long it's been there, how many touchpoints, and whether it's moving or stalling. Be blunt about stalls.
+THE STORY — what actually happened across the call notes, in order, as a narrative. Name the people involved. If the notes conflict or a promise was made, say so. If there are no notes, say the history is undocumented and skip inventing one.
+WHAT I KNOW ABOUT THEM — concrete facts from their website (cuisine, locations, hours, whether they already do delivery/online ordering, anything that shapes the pitch) and any market data figures that are actually about their area. Only state what the source supports; never invent numbers.
+NEXT MOVE — one specific opening line or angle for this call, grounded in the above.
+
+Under 260 words total. No preamble, no sign-off. If a section has nothing real behind it, say so in one line rather than padding.`;
+    user = `ACCOUNT: ${JSON.stringify(account)}\n\n`
+      + `CALL NOTES (newest first): ${notes.length ? JSON.stringify(notes) : 'none recorded'}\n\n`
+      + `STAGE-CHANGE NOTES: ${stage_notes.length ? JSON.stringify(stage_notes) : 'none'}\n\n`
+      + `WEBSITE TEXT (${account.website || 'no website on file'}): ${site || 'not provided'}\n\n`
+      + `MARKET DATA POSSIBLY COVERING THEIR AREA: ${market.length ? JSON.stringify(market) : 'none uploaded'}`;
+    maxTokens = 3000;
+
   } else if (mode === 'briefing') {
     const ctx = req.body._context || {};
     system = `You are Mark's pipeline wingman. He's an Uber Eats AE pursuing Midwest restaurants. Give him a punchy morning briefing: 1) anything overdue or due today, 2) today's appointments, 3) the 3-5 accounts that most need a touchpoint and what kind (dial/email/text/voicemail) and why, 4) one motivating closer line. Be specific, use account names, keep it under 250 words. Plain text with emoji section markers, no markdown headers.

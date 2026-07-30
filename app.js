@@ -329,23 +329,49 @@ $('briefing-btn').onclick = async () => {
 };
 
 // ===== PIPELINE BOARD =====
-// Sorts shared by the board and the list view. `priority` is the default:
-// heaviest tier first, and within a tier the one that's been ignored longest.
-const SORTS = {
-  priority: { label: 'Priority (points, then quiet)', fn: (a, b) => ptsOf(b) - ptsOf(a) || daysQuiet(b) - daysQuiet(a) },
-  points: { label: 'Tier / points', fn: (a, b) => ptsOf(b) - ptsOf(a) },
-  quiet: { label: 'Days since last touch', fn: (a, b) => daysQuiet(b) - daysQuiet(a) },
-  stage_age: { label: 'Days in stage', fn: (a, b) => daysInStage(b) - daysInStage(a) },
-  touchpoints: { label: 'Touchpoints (most)', fn: (a, b) => tpTotal(b) - tpTotal(a) },
-  touchpoints_asc: { label: 'Touchpoints (fewest)', fn: (a, b) => tpTotal(a) - tpTotal(b) },
-  name: { label: 'Name (A–Z)', fn: (a, b) => a.name.localeCompare(b.name) },
-};
+// One column definition drives both the clickable table header and the sort
+// dropdown, so the two can never disagree. `defDir` is the direction a column
+// takes on first click — most-touched, longest-quiet, biggest-tier first.
+const LIST_COLS = [
+  { key: 'tier', label: 'Tier', get: a => ptsOf(a), defDir: 'desc' },
+  { key: 'name', label: 'Account', get: a => a.name.toLowerCase(), defDir: 'asc' },
+  { key: 'stage', label: 'Stage', get: a => STAGES.findIndex(s => s.key === a.stage), defDir: 'asc' },
+  { key: 'in_stage', label: 'In stage', get: a => daysInStage(a), defDir: 'desc' },
+  { key: 'quiet', label: 'Quiet', get: a => daysQuiet(a), defDir: 'desc' },
+  { key: 'touches', label: 'Touches', get: a => tpTotal(a), defDir: 'desc' },
+  { key: 'dm', label: 'DM', get: a => (a.dm_name || '').toLowerCase(), defDir: 'asc' },
+];
+// Composite default that isn't a single column: heaviest tier first, and within
+// a tier whatever's been ignored longest.
+const priorityCmp = (a, b) => ptsOf(b) - ptsOf(a) || daysQuiet(b) - daysQuiet(a);
+
+function comparator() {
+  const key = state.sortKey || 'priority';
+  if (key === 'priority') return priorityCmp;
+  const col = LIST_COLS.find(c => c.key === key);
+  if (!col) return priorityCmp;
+  const m = (state.sortDir || col.defDir) === 'asc' ? 1 : -1;
+  return (a, b) => {
+    const x = col.get(a), y = col.get(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * m || a.name.localeCompare(b.name);
+  };
+}
+function setSort(key) {
+  const col = LIST_COLS.find(c => c.key === key);
+  // Same column again flips direction; a new column starts at its natural one.
+  state.sortDir = state.sortKey === key
+    ? (state.sortDir === 'asc' ? 'desc' : 'asc')
+    : (col ? col.defDir : 'desc');
+  state.sortKey = key;
+  const dd = $('pipe-sort');
+  if (dd) dd.value = [...dd.options].some(o => o.value === key) ? key : 'custom';
+  renderBoard();
+}
 function visibleAccounts() {
   const q = ($('pipeline-search').value || '').toLowerCase();
-  const sort = SORTS[state.sort || 'priority'] || SORTS.priority;
   return state.accounts
     .filter(a => !q || a.name.toLowerCase().includes(q) || (a.dm_name || '').toLowerCase().includes(q) || (a.city || '').toLowerCase().includes(q))
-    .sort(sort.fn);
+    .sort(comparator());
 }
 
 function renderBoard() {
@@ -381,7 +407,14 @@ function renderPipeList(accounts) {
   $('pipe-list').innerHTML = !rows.length ? '<div class="empty">Nothing matches.</div>' : `
     <div class="list-summary">${rows.length} open · <b>${sumPts(rows)} points</b> in play</div>
     <div class="rep-table-wrap"><table class="rep-table list-table"><thead><tr>
-      <th>Tier</th><th>Account</th><th>Stage</th><th>In stage</th><th>Quiet</th><th>Touches</th><th>DM</th><th>Log</th>
+      ${LIST_COLS.map(c => {
+        const on = state.sortKey === c.key;
+        const dir = on ? (state.sortDir || c.defDir) : null;
+        return `<th class="th-sort ${on ? 'active' : ''}" onclick="setSort('${c.key}')" title="Sort by ${esc(c.label)}">
+          <span class="th-inner">${esc(c.label)}<span class="th-arrow">${on ? (dir === 'asc' ? '↑' : '↓') : ''}</span></span>
+        </th>`;
+      }).join('')}
+      <th>Log</th>
     </tr></thead><tbody>
     ${rows.map(a => {
       const s = stageInfo(a.stage), q = daysQuiet(a);
@@ -401,7 +434,13 @@ function renderPipeList(accounts) {
 $('pipeline-search').addEventListener('input', renderBoard);
 $('pipe-board-btn')?.addEventListener('click', () => { state.pipeView = 'board'; renderBoard(); });
 $('pipe-list-btn')?.addEventListener('click', () => { state.pipeView = 'list'; renderBoard(); });
-$('pipe-sort')?.addEventListener('change', e => { state.sort = e.target.value; renderBoard(); });
+$('pipe-sort')?.addEventListener('change', e => {
+  const key = e.target.value;
+  const col = LIST_COLS.find(c => c.key === key);
+  state.sortKey = key;
+  state.sortDir = col ? col.defDir : 'desc';
+  renderBoard();
+});
 
 function cardHTML(a, s) {
   const st = state.stats[a.id] || {};
@@ -505,6 +544,9 @@ async function openDrawer(id) {
       </div>
     </div>
 
+    ${contactBlockHTML(a)}
+    ${summaryBlockHTML(a)}
+
     ${a.stage === 'closed_won' ? closeoutSectionHTML(a) : ''}
 
     <div class="drawer-section">
@@ -556,6 +598,88 @@ async function openDrawer(id) {
   });
 }
 function closeDrawer(e) { $('drawer-overlay').classList.add('hidden'); currentDrawerId = null; }
+
+// Everything you'd reach for mid-call: numbers you can tap to dial, the site,
+// and the DM's email — no scrolling, no opening the edit modal.
+function contactBlockHTML(a) {
+  const phones = Array.isArray(a.phones) ? a.phones : [];
+  if (!phones.length && !a.website && !a.dm_email) return '';
+  const tel = n => 'tel:' + n.replace(/[^\d+]/g, '');
+  const site = a.website ? (/^https?:\/\//i.test(a.website) ? a.website : 'https://' + a.website) : null;
+  return `<div class="drawer-section contact-block">
+    <h4>Contact</h4>
+    <div class="contact-grid">
+      ${phones.map(p => `<a class="contact-chip" href="${esc(tel(p.number))}" title="Call ${esc(p.number)}">
+          ${ico('phone', 'ico-xs')}<span class="cc-label">${esc(p.label)}</span><span class="cc-val">${esc(p.number)}</span>
+        </a>`).join('')}
+      ${a.dm_email ? `<a class="contact-chip" href="mailto:${esc(a.dm_email)}">${ico('mail', 'ico-xs')}<span class="cc-label">Email</span><span class="cc-val">${esc(a.dm_email)}</span></a>` : ''}
+      ${site ? `<a class="contact-chip" href="${esc(site)}" target="_blank" rel="noopener">${ico('external', 'ico-xs')}<span class="cc-label">Website</span><span class="cc-val">${esc(a.website)}</span></a>` : ''}
+    </div>
+  </div>`;
+}
+
+function summaryBlockHTML(a) {
+  const stale = a.summary_at && daysAgo(a.summary_at) >= 7;
+  return `<div class="drawer-section summary-block">
+    <h4>Account Summary
+      <button class="btn btn-ai btn-sm" onclick="generateSummary('${a.id}')" id="sum-btn">
+        ${ico('sparkles', 'ico-xs')} ${a.summary ? 'Refresh' : 'Build summary'}
+      </button>
+    </h4>
+    ${a.summary
+      ? `<div class="summary-body">${esc(a.summary).replace(/\n/g, '<br>')}</div>
+         <div class="summary-meta ${stale ? 'stale' : ''}">Generated ${fmtDT(a.summary_at)}${stale ? ' · getting stale' : ''}</div>`
+      : `<div class="empty">No summary yet. Build one to pull together their website, market data for ${esc(a.city || 'their area')}, and every call note into one story.</div>`}
+  </div>`;
+}
+
+async function generateSummary(id) {
+  const a = state.accounts.find(x => x.id === id);
+  const btn = $('sum-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Reading…'; }
+  try {
+    // Notes are the spine of the story — pull them with their type and date.
+    const [{ data: tps }, { data: hist }] = await Promise.all([
+      sb.from('touchpoints').select('type,note,occurred_at').eq('account_id', id).order('occurred_at', { ascending: false }).limit(60),
+      sb.from('stage_history').select('to_stage,note,changed_at').eq('account_id', id).order('changed_at', { ascending: false }).limit(20),
+    ]);
+    const st = state.stats[id] || {};
+    const r = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.session.access_token },
+      body: JSON.stringify({
+        mode: 'account_summary',
+        account: {
+          name: a.name, dm: a.dm_name, city: a.city, tier: a.tier, points: ptsOf(a),
+          stage: stageInfo(a.stage).label, days_in_stage: daysInStage(a), days_quiet: daysQuiet(a),
+          website: a.website, phones: a.phones,
+          touchpoints: { total: st.total_touchpoints || 0, dials: st.dials || 0, emails: st.emails || 0, texts: st.texts || 0, voicemails: st.voicemails || 0 },
+        },
+        notes: (tps || []).filter(t => t.note).map(t => ({ type: t.type, when: fmtD(t.occurred_at), note: t.note })),
+        stage_notes: (hist || []).filter(h => h.note).map(h => ({ stage: stageInfo(h.to_stage).label, when: fmtD(h.changed_at), note: h.note })),
+        market: relevantMarket(a),
+      }),
+    });
+    const out = await r.json();
+    if (!r.ok || out.error) throw new Error(out.error || 'Failed');
+    await sb.from('accounts').update({ summary: out.text, summary_at: new Date().toISOString() }).eq('id', id);
+    toast('Summary ready');
+    await loadAll(); openDrawer(id);
+  } catch (e) {
+    toast(e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Build summary'; }
+  }
+}
+
+// Market sheets are big; send only what plausibly covers this account's area,
+// and cap it so one huge upload can't blow the context budget.
+function relevantMarket(a) {
+  const city = (a.city || '').split(',')[0].trim().toLowerCase();
+  const hit = state.market.filter(m =>
+    city && ((m.market || '').toLowerCase().includes(city) || (m.content || '').toLowerCase().includes(city)));
+  const use = (hit.length ? hit : state.market).slice(0, 3);
+  return use.map(m => ({ name: m.name, market: m.market, content: (m.content || '').slice(0, 4000) }));
+}
 
 function milestoneStep(id, field, value, icon, label) {
   const done = !!value;
@@ -627,6 +751,15 @@ function openAccountModal(id) {
     <div class="field"><label>Salesforce link (paste it — name becomes the clickable pill)</label><input id="m-sf" class="input" value="${esc(a?.sf_url || '')}" placeholder="https://uber.lightning.force.com/…"></div>
     <div class="field"><label>Decision maker</label><input id="m-dm" class="input" value="${esc(a?.dm_name || '')}" placeholder="Who signs?"></div>
     <div class="field"><label>Their email</label><input id="m-dmemail" class="input" type="email" value="${esc(a?.dm_email || '')}" placeholder="tony@tonyspizza.com"></div>
+    <div class="field"><label>Website</label><input id="m-website" class="input" value="${esc(a?.website || '')}" placeholder="tonyspizza.com"></div>
+    <div class="field">
+      <label>Phone numbers <span class="tz-tag">label each so you know whose is whose</span></label>
+      <div id="phone-rows"></div>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="addPhoneRow()">${ico('plus', 'ico-xs')} Add number</button>
+      <datalist id="phone-labels">
+        ${['Cell', 'Corporate', 'Location', 'Main', 'Kitchen', 'Manager', 'Owner', 'Other'].map(l => `<option value="${l}">`).join('')}
+      </datalist>
+    </div>
     <div class="field"><label>City</label><input id="m-city" class="input" value="${esc(a?.city || '')}" placeholder="Cincinnati, OH"></div>
     <div class="field"><label>Tier <span class="tz-tag">drives points</span></label><select id="m-tier" class="input">
       ${TIERS.map(t => `<option value="${t}" ${(a?.tier ?? 3) === t ? 'selected' : ''}>Tier ${t} — ${TIER_POINTS[t]} ${TIER_POINTS[t] === 1 ? 'point' : 'points'}</option>`).join('')}
@@ -638,9 +771,28 @@ function openAccountModal(id) {
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary btn-glow" onclick="saveAccount('${id || ''}')">${a ? 'Save' : 'Start the pursuit'}</button>
     </div>`);
+  const existing = Array.isArray(a?.phones) ? a.phones : [];
+  (existing.length ? existing : [{ label: '', number: '' }]).forEach(p => addPhoneRow(p.label, p.number));
+}
+function addPhoneRow(label = '', number = '') {
+  const wrap = $('phone-rows');
+  if (!wrap) return;
+  const row = document.createElement('div');
+  row.className = 'phone-row';
+  row.innerHTML = `
+    <input class="input phone-label" list="phone-labels" placeholder="Label" value="${esc(label)}">
+    <input class="input phone-number" placeholder="(513) 555-0123" value="${esc(number)}">
+    <button type="button" class="btn btn-danger btn-icon" title="Remove">${ico('trash', 'ico-xs')}</button>`;
+  row.querySelector('button').onclick = () => row.remove();
+  wrap.appendChild(row);
+}
+function collectPhones() {
+  return [...document.querySelectorAll('.phone-row')]
+    .map(r => ({ label: r.querySelector('.phone-label').value.trim() || 'Main', number: r.querySelector('.phone-number').value.trim() }))
+    .filter(p => p.number);
 }
 async function saveAccount(id) {
-  const row = { name: $('m-name').value.trim(), sf_url: $('m-sf').value.trim() || null, dm_name: $('m-dm').value.trim() || null, dm_email: $('m-dmemail').value.trim() || null, city: $('m-city').value.trim() || null, timezone: $('m-tz').value, tier: +$('m-tier').value };
+  const row = { name: $('m-name').value.trim(), sf_url: $('m-sf').value.trim() || null, dm_name: $('m-dm').value.trim() || null, dm_email: $('m-dmemail').value.trim() || null, city: $('m-city').value.trim() || null, timezone: $('m-tz').value, tier: +$('m-tier').value, website: $('m-website').value.trim() || null, phones: collectPhones() };
   if (!row.name) return toast('Name it first');
   if (id) await sb.from('accounts').update(row).eq('id', id);
   else await sb.from('accounts').insert(row);
