@@ -75,6 +75,7 @@
     <div class="sidebar-logo" title="Pursuit Wizard">🧙</div>
     <button class="nav-btn active" data-tab="dashboard" title="Dashboard"><svg class="ico"><use href="#i-dashboard"/></svg><label>Today</label></button>
     <button class="nav-btn" data-tab="pipeline" title="Pipeline"><svg class="ico"><use href="#i-columns"/></svg><label>Pipeline</label></button>
+    <button class="nav-btn" data-tab="reminders" title="Reminders"><svg class="ico"><use href="#i-clock"/></svg><label>Reminders</label></button>
     <button class="nav-btn" data-tab="calendar" title="Calendar"><svg class="ico"><use href="#i-calendar"/></svg><label>Calendar</label></button>
     <button class="nav-btn" data-tab="market" title="Market Data"><svg class="ico"><use href="#i-chart"/></svg><label>Market</label></button>
     <button class="nav-btn" data-tab="reports" title="Reports"><svg class="ico"><use href="#i-trending"/></svg><label>Reports</label></button>
@@ -120,11 +121,25 @@
       <header class="tab-header">
         <h2><svg class="ico"><use href="#i-columns"/></svg> Pipeline</h2>
         <div class="header-actions">
+          <div class="seg">
+            <button class="seg-btn active" id="pipe-board-btn">Board</button>
+            <button class="seg-btn" id="pipe-list-btn">Call List</button>
+          </div>
+          <select id="pipe-sort" class="input input-sm" title="Sort accounts">
+            <option value="priority">Priority (points, then quiet)</option>
+            <option value="points">Tier / points</option>
+            <option value="quiet">Days since last touch</option>
+            <option value="stage_age">Days in stage</option>
+            <option value="touchpoints">Touchpoints (most)</option>
+            <option value="touchpoints_asc">Touchpoints (fewest)</option>
+            <option value="name">Name (A–Z)</option>
+          </select>
           <input id="pipeline-search" class="search-input" placeholder="Search accounts…">
           <button class="btn btn-primary btn-glow" onclick="openAccountModal()"><svg class="ico"><use href="#i-plus"/></svg> New Account</button>
         </div>
       </header>
       <div id="board" class="board"></div>
+      <div id="pipe-list" class="pipe-list hidden"></div>
     </section>
 
     <!-- CALENDAR -->
@@ -150,6 +165,17 @@
       </header>
       <p class="hint">Drop in the spreadsheets Uber gives you (CSV or pasted text). Claude reads these to make your emails data-savvy and market-specific.</p>
       <div id="market-list" class="market-list"></div>
+    </section>
+
+    <!-- REMINDERS -->
+    <section id="tab-reminders" class="tab">
+      <header class="tab-header">
+        <h2><svg class="ico"><use href="#i-clock"/></svg> Reminders</h2>
+        <div class="header-actions">
+          <button class="btn btn-primary btn-glow" onclick="openReminderModal()"><svg class="ico"><use href="#i-plus"/></svg> New reminder</button>
+        </div>
+      </header>
+      <div id="reminders-body"></div>
     </section>
 
     <!-- REPORTS -->

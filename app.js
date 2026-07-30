@@ -83,6 +83,17 @@ const CLOSEOUT_STEPS = [
   ['banking_received_at', 'trophy', 'Banking Received — CW1'],
 ];
 const PROMO_LABEL = { none: 'No promo', bogo: 'BOGO', spend_get_off: 'Spend X, Get $ Off', spend_get_free: 'Spend X, Get Free Item', other: 'Other' };
+
+// Tier drives comp — T1 is worth 7x a T5. Points are a generated column in
+// Postgres (accounts.tier_points); this mirror keeps the UI from round-tripping.
+const TIER_POINTS = { 1: 7, 2: 4, 3: 3, 4: 2, 5: 1 };
+const TIERS = [1, 2, 3, 4, 5];
+const ptsOf = a => TIER_POINTS[a.tier] ?? 3;
+const sumPts = list => list.reduce((n, a) => n + ptsOf(a), 0);
+// How long it's sat in its current stage — the "am I stalling on this?" number.
+const daysInStage = a => daysAgo(a.stage_changed_at || a.created_at);
+const daysQuiet = a => daysAgo((state.stats[a.id] || {}).last_touch_at || a.created_at);
+const tpTotal = a => (state.stats[a.id] || {}).total_touchpoints || 0;
 const toast = msg => { const t = $('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.add('hidden'), 2600); };
 
 // ===== AUTH =====
@@ -111,7 +122,7 @@ async function loadAll() {
   const [acc, stats, rem, appt, mkt, voice, prof] = await Promise.all([
     sb.from('accounts').select('*').order('stage_changed_at', { ascending: false }),
     sb.from('account_touchpoint_stats').select('*'),
-    sb.from('reminders').select('*').eq('done', false).order('due_at'),
+    sb.from('reminders').select('*').order('due_at'),
     sb.from('appointments').select('*').order('starts_at'),
     sb.from('market_data').select('id,name,market,uploaded_at,content').order('uploaded_at', { ascending: false }),
     sb.from('voice_samples').select('*').order('created_at'),
@@ -127,7 +138,48 @@ async function loadAll() {
   if (!state.calMonth) { const n = new Date(); state.calMonth = [n.getFullYear(), n.getMonth()]; }
   renderAll();
 }
-function renderAll() { renderDashboard(); renderBoard(); renderCalendar(); renderMarket(); renderAIStudio(); renderReports(); }
+function renderAll() { renderDashboard(); renderBoard(); renderReminders(); renderCalendar(); renderMarket(); renderAIStudio(); renderReports(); }
+
+// ===== REMINDERS =====
+// Completed ones stay listed so a mis-click is recoverable — nothing is deleted
+// on completion, only stamped with done_at.
+function renderReminders() {
+  const now = new Date(), today = ymdTz(now, MY_TZ);
+  const open = state.reminders.filter(r => !r.done);
+  const buckets = [
+    ['Overdue', open.filter(r => new Date(r.due_at) < now && ymdTz(r.due_at, MY_TZ) !== today), 'overdue'],
+    ['Today', open.filter(r => ymdTz(r.due_at, MY_TZ) === today), 'today'],
+    ['Upcoming', open.filter(r => ymdTz(r.due_at, MY_TZ) > today), 'upcoming'],
+    ['Completed', state.reminders.filter(r => r.done).sort((a, b) => new Date(b.done_at || 0) - new Date(a.done_at || 0)), 'done'],
+  ];
+  $('reminders-body').innerHTML = buckets.map(([title, list, cls]) => `
+    <div class="panel glow-hover rem-group ${cls}" style="margin-bottom:14px">
+      <h3>${esc(title)} <span class="count">${list.length}</span></h3>
+      ${list.length ? list.map(r => reminderRow(r, cls)).join('') : '<div class="empty">Nothing here.</div>'}
+    </div>`).join('');
+}
+function reminderRow(r, cls) {
+  const overdue = !r.done && new Date(r.due_at) < new Date();
+  return `<div class="row ${r.done ? 'row-done' : ''}">
+    ${r.done
+      ? `<button class="check-btn checked" onclick="uncompleteReminder('${r.id}')" title="Undo — put it back">${ico('check', 'ico-xs')}</button>`
+      : `<button class="check-btn" onclick="completeReminder('${r.id}')" title="Mark done">${ico('check', 'ico-xs')}</button>`}
+    <div class="row-main">${esc(r.title)}
+      <div class="row-sub">${r.account_id ? esc(accName(r.account_id)) + ' · ' : ''}${fmtDT(r.due_at)}${r.done && r.done_at ? ' · done ' + fmtDT(r.done_at) : ''}</div>
+    </div>
+    <span class="row-time ${overdue ? 'stale' : ''}">${overdue ? 'overdue' : ''}</span>
+    <button class="btn btn-danger btn-icon" title="Delete" onclick="deleteReminder('${r.id}')">${ico('trash', 'ico-xs')}</button>
+  </div>`;
+}
+async function uncompleteReminder(id) {
+  await sb.from('reminders').update({ done: false, done_at: null }).eq('id', id);
+  toast('Restored'); await loadAll();
+}
+async function deleteReminder(id) {
+  if (!confirm('Delete this reminder for good?')) return;
+  await sb.from('reminders').delete().eq('id', id);
+  toast('Deleted'); await loadAll();
+}
 
 // ===== REPORTS =====
 // Buckets are computed on the account's timezone-local calendar day, then
@@ -195,7 +247,8 @@ function renderDashboard() {
 
   // reminders
   const now = new Date();
-  $('dash-reminders').innerHTML = state.reminders.length ? state.reminders.map(r => {
+  const openRems = state.reminders.filter(r => !r.done);
+  $('dash-reminders').innerHTML = openRems.length ? openRems.map(r => {
     const overdue = new Date(r.due_at) < now;
     return `<div class="row ${overdue ? 'overdue' : ''}">
       <button class="check-btn" onclick="completeReminder('${r.id}')" title="Mark done">${ico('check', 'ico-xs')}</button>
@@ -235,6 +288,7 @@ function renderDashboard() {
   const wk = state.accounts.filter(a => a.stage === 'closed_won').length;
   const tiles = [
     [active.length, 'Active pursuits'],
+    [sumPts(active), 'Points in play'],
     [totalTp, 'Total touchpoints'],
     [wk, 'Closed won'],
     [state.accounts.filter(a => a.stage === 'on_ice').length, 'On ice'],
@@ -244,8 +298,8 @@ function renderDashboard() {
 }
 
 async function completeReminder(id) {
-  await sb.from('reminders').update({ done: true }).eq('id', id);
-  toast('Reminder done');
+  await sb.from('reminders').update({ done: true, done_at: new Date().toISOString() }).eq('id', id);
+  toast('Reminder done — find it under Reminders › Completed');
   await loadAll();
 }
 
@@ -275,23 +329,79 @@ $('briefing-btn').onclick = async () => {
 };
 
 // ===== PIPELINE BOARD =====
-function renderBoard() {
+// Sorts shared by the board and the list view. `priority` is the default:
+// heaviest tier first, and within a tier the one that's been ignored longest.
+const SORTS = {
+  priority: { label: 'Priority (points, then quiet)', fn: (a, b) => ptsOf(b) - ptsOf(a) || daysQuiet(b) - daysQuiet(a) },
+  points: { label: 'Tier / points', fn: (a, b) => ptsOf(b) - ptsOf(a) },
+  quiet: { label: 'Days since last touch', fn: (a, b) => daysQuiet(b) - daysQuiet(a) },
+  stage_age: { label: 'Days in stage', fn: (a, b) => daysInStage(b) - daysInStage(a) },
+  touchpoints: { label: 'Touchpoints (most)', fn: (a, b) => tpTotal(b) - tpTotal(a) },
+  touchpoints_asc: { label: 'Touchpoints (fewest)', fn: (a, b) => tpTotal(a) - tpTotal(b) },
+  name: { label: 'Name (A–Z)', fn: (a, b) => a.name.localeCompare(b.name) },
+};
+function visibleAccounts() {
   const q = ($('pipeline-search').value || '').toLowerCase();
+  const sort = SORTS[state.sort || 'priority'] || SORTS.priority;
+  return state.accounts
+    .filter(a => !q || a.name.toLowerCase().includes(q) || (a.dm_name || '').toLowerCase().includes(q) || (a.city || '').toLowerCase().includes(q))
+    .sort(sort.fn);
+}
+
+function renderBoard() {
+  const view = state.pipeView || 'board';
+  $('board').classList.toggle('hidden', view !== 'board');
+  $('pipe-list').classList.toggle('hidden', view !== 'list');
+  $('pipe-board-btn')?.classList.toggle('active', view === 'board');
+  $('pipe-list-btn')?.classList.toggle('active', view === 'list');
+  const accounts = visibleAccounts();
+
   $('board').innerHTML = STAGES.map(s => {
-    const accs = state.accounts.filter(a => a.stage === s.key && (!q || a.name.toLowerCase().includes(q) || (a.dm_name || '').toLowerCase().includes(q)));
+    const accs = accounts.filter(a => a.stage === s.key);
+    const pts = sumPts(accs);
     return `<div class="col ${s.park ? 'col-park' : ''}" style="--stage-c:${s.color}">
-      <div class="col-head" title="${esc(s.label)}">
+      <div class="col-head" title="${esc(s.label)} — ${accs.length} accounts, ${pts} points">
         <div class="col-head-top">
           <span class="col-icon">${ico(s.icon)}</span>
           <span class="count">${accs.length}</span>
         </div>
         <span class="col-label">${esc(s.short)}</span>
+        <span class="col-pts">${pts} pts</span>
       </div>
       <div class="col-body">${accs.map(a => cardHTML(a, s)).join('') || '<div class="col-empty"></div>'}</div>
     </div>`;
   }).join('');
+
+  renderPipeList(accounts);
+}
+
+// The morning call-list. Same data as the board, laid out for working top-down.
+function renderPipeList(accounts) {
+  const rows = accounts.filter(a => !['closed_won', 'moving_on'].includes(a.stage));
+  $('pipe-list').innerHTML = !rows.length ? '<div class="empty">Nothing matches.</div>' : `
+    <div class="list-summary">${rows.length} open · <b>${sumPts(rows)} points</b> in play</div>
+    <div class="rep-table-wrap"><table class="rep-table list-table"><thead><tr>
+      <th>Tier</th><th>Account</th><th>Stage</th><th>In stage</th><th>Quiet</th><th>Touches</th><th>DM</th><th>Log</th>
+    </tr></thead><tbody>
+    ${rows.map(a => {
+      const s = stageInfo(a.stage), q = daysQuiet(a);
+      return `<tr onclick="openDrawer('${a.id}')">
+        <td><span class="tier-badge t${a.tier}">T${a.tier}</span></td>
+        <td class="cell-name">${esc(a.name)}${a.city ? `<span class="cell-sub">${esc(a.city)}</span>` : ''}</td>
+        <td><span class="stage-tag" style="--sp-c:${s.color}">${ico(s.icon, 'ico-xs')}${esc(s.short)}</span></td>
+        <td class="mono">${daysInStage(a)}d</td>
+        <td class="mono ${q >= 4 ? 'stale' : ''}">${q}d</td>
+        <td class="mono">${tpTotal(a)}</td>
+        <td class="cell-sub-only">${esc(a.dm_name || '—')}</td>
+        <td onclick="event.stopPropagation()"><div class="row-quick">${TP_TYPES.map(t => `<button class="quick-btn" title="Log ${t.label}" onclick="quickLog('${a.id}','${t.key}')">${ico(t.icon, 'ico-xs')}</button>`).join('')}</div></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table></div>`;
 }
 $('pipeline-search').addEventListener('input', renderBoard);
+$('pipe-board-btn')?.addEventListener('click', () => { state.pipeView = 'board'; renderBoard(); });
+$('pipe-list-btn')?.addEventListener('click', () => { state.pipeView = 'list'; renderBoard(); });
+$('pipe-sort')?.addEventListener('change', e => { state.sort = e.target.value; renderBoard(); });
 
 function cardHTML(a, s) {
   const st = state.stats[a.id] || {};
@@ -299,6 +409,7 @@ function cardHTML(a, s) {
   const counts = [st.dials, st.emails, st.texts, st.voicemails];
   return `<div class="card" style="--stage-c:${s.color}" onclick="openDrawer('${a.id}')" title="${esc(a.name)}${a.dm_name ? ' · ' + esc(a.dm_name) : ''}">
     <div class="card-top">
+      <span class="tier-badge t${a.tier}" title="Tier ${a.tier} — ${ptsOf(a)} pts">T${a.tier}</span>
       <span class="card-name">${esc(a.name)}</span>
       ${a.sf_url ? `<a class="card-sf" href="${esc(a.sf_url)}" target="_blank" rel="noopener" title="Open in Salesforce" onclick="event.stopPropagation()">${ico('external', 'ico-xs')}</a>` : ''}
     </div>
@@ -321,11 +432,45 @@ function closeoutMini(a) {
   return `<div class="co-mini">${steps.map(([f, ic, label]) => `<span class="co-dot ${a[f] ? 'done' : ''}" title="${label}${a[f] ? ' — ' + fmtD(a[f]) : ''}">${ico(ic, 'ico-xs')}</span>`).join('')}</div>`;
 }
 
+// Logs immediately (a calling session shouldn't wait on a dialog), then offers
+// an inline disposition box. Ignore it and it fades; type and it attaches the
+// note to the touchpoint just written.
 async function quickLog(accountId, type) {
-  await sb.from('touchpoints').insert({ account_id: accountId, type });
-  toast(`${TP_TYPES.find(t => t.key === type).label} logged`);
+  const t = TP_TYPES.find(x => x.key === type);
+  const { data, error } = await sb.from('touchpoints').insert({ account_id: accountId, type }).select('id').single();
+  if (error) return toast('Could not log — ' + error.message);
   await loadAll();
   if (currentDrawerId === accountId) openDrawer(accountId);
+  dispositionPrompt(data.id, `${t.label} logged`);
+}
+function dispositionPrompt(touchpointId, label) {
+  const t = $('toast');
+  clearTimeout(t._h);
+  t.classList.remove('hidden');
+  t.innerHTML = `<div class="toast-disp">
+      <span class="toast-msg">${esc(label)}</span>
+      <input id="disp-input" class="toast-input" placeholder="What happened? (optional)" autocomplete="off">
+      <button class="btn btn-ghost btn-icon" id="disp-close" title="Dismiss">${ico('x', 'ico-xs')}</button>
+    </div>`;
+  const input = $('disp-input');
+  const close = () => { t.classList.add('hidden'); t.textContent = ''; };
+  // Longer fuse than a normal toast so there's time to type; cancel it on focus.
+  t._h = setTimeout(close, 9000);
+  input.onfocus = () => clearTimeout(t._h);
+  input.onblur = () => { if (!input.value.trim()) t._h = setTimeout(close, 3500); };
+  $('disp-close').onclick = close;
+  input.onkeydown = async e => {
+    if (e.key === 'Escape') return close();
+    if (e.key !== 'Enter') return;
+    const note = input.value.trim();
+    close();
+    if (!note) return;
+    await sb.from('touchpoints').update({ note }).eq('id', touchpointId);
+    toast('Note saved');
+    await loadAll();
+    if (currentDrawerId) openDrawer(currentDrawerId);
+  };
+  input.focus();
 }
 
 // ===== DRAWER =====
@@ -483,6 +628,9 @@ function openAccountModal(id) {
     <div class="field"><label>Decision maker</label><input id="m-dm" class="input" value="${esc(a?.dm_name || '')}" placeholder="Who signs?"></div>
     <div class="field"><label>Their email</label><input id="m-dmemail" class="input" type="email" value="${esc(a?.dm_email || '')}" placeholder="tony@tonyspizza.com"></div>
     <div class="field"><label>City</label><input id="m-city" class="input" value="${esc(a?.city || '')}" placeholder="Cincinnati, OH"></div>
+    <div class="field"><label>Tier <span class="tz-tag">drives points</span></label><select id="m-tier" class="input">
+      ${TIERS.map(t => `<option value="${t}" ${(a?.tier ?? 3) === t ? 'selected' : ''}>Tier ${t} — ${TIER_POINTS[t]} ${TIER_POINTS[t] === 1 ? 'point' : 'points'}</option>`).join('')}
+    </select></div>
     <div class="field"><label>Their timezone</label><select id="m-tz" class="input">
       ${ZONES.map(z => `<option value="${z.tz}" ${(a?.timezone || 'America/New_York') === z.tz ? 'selected' : ''}>${z.label}</option>`).join('')}
     </select></div>
@@ -492,7 +640,7 @@ function openAccountModal(id) {
     </div>`);
 }
 async function saveAccount(id) {
-  const row = { name: $('m-name').value.trim(), sf_url: $('m-sf').value.trim() || null, dm_name: $('m-dm').value.trim() || null, dm_email: $('m-dmemail').value.trim() || null, city: $('m-city').value.trim() || null, timezone: $('m-tz').value };
+  const row = { name: $('m-name').value.trim(), sf_url: $('m-sf').value.trim() || null, dm_name: $('m-dm').value.trim() || null, dm_email: $('m-dmemail').value.trim() || null, city: $('m-city').value.trim() || null, timezone: $('m-tz').value, tier: +$('m-tier').value };
   if (!row.name) return toast('Name it first');
   if (id) await sb.from('accounts').update(row).eq('id', id);
   else await sb.from('accounts').insert(row);
@@ -593,7 +741,7 @@ function renderCalendar() {
     const ds = d.toDateString();
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const appts = state.appointments.filter(a => ymdTz(a.starts_at, MY_TZ) === iso);
-    const rems = state.reminders.filter(r => ymdTz(r.due_at, MY_TZ) === iso);
+    const rems = state.reminders.filter(r => !r.done && ymdTz(r.due_at, MY_TZ) === iso);
     cells.push(`<div class="cal-cell ${d.getMonth() !== m ? 'other-month' : ''} ${ds === todayStr ? 'today' : ''}" onclick="dayClick('${iso}')">
       <div class="d">${d.getDate()}</div>
       ${appts.slice(0, 3).map(a => `<div class="cal-evt ${a.kind}" title="${esc(a.title)} — ${esc(dualT(a.starts_at, acctTz(a.account_id)))}"><b>${fmtT(a.starts_at)}</b> ${esc(a.title)}</div>`).join('')}
@@ -606,7 +754,7 @@ function renderCalendar() {
 function dayClick(iso) {
   const d = new Date(iso + 'T00:00');
   const appts = state.appointments.filter(a => ymdTz(a.starts_at, MY_TZ) === iso);
-  const rems = state.reminders.filter(r => ymdTz(r.due_at, MY_TZ) === iso);
+  const rems = state.reminders.filter(r => !r.done && ymdTz(r.due_at, MY_TZ) === iso);
   const el = $('cal-day-detail');
   el.classList.remove('hidden');
   el.innerHTML = `<h3>${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
@@ -778,7 +926,7 @@ function briefingContext() {
   return {
     today: now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', timeZone: MY_TZ }),
     now_local: `${fmtT(now)} ${abbrOf(MY_TZ)}`,
-    reminders: state.reminders.map(r => ({ title: r.title, due: `${fmtDT(r.due_at)} ${abbrOf(MY_TZ)}`, account: accName(r.account_id), overdue: new Date(r.due_at) < now })),
+    reminders: state.reminders.filter(r => !r.done).map(r => ({ title: r.title, due: `${fmtDT(r.due_at)} ${abbrOf(MY_TZ)}`, account: accName(r.account_id), overdue: new Date(r.due_at) < now })),
     appointments: state.appointments
       .filter(a => ymdTz(a.starts_at, MY_TZ) >= todayIso && new Date(a.starts_at) < new Date(Date.now() + 3 * 86400000))
       .map(a => ({ title: a.title, at: dualT(a.starts_at, acctTz(a.account_id)), kind: a.kind, account: accName(a.account_id) })),

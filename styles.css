@@ -241,6 +241,74 @@ select.input { cursor: pointer; }
 .empty { color: var(--text-faint); font-size: 13px; padding: 14px 4px; }
 .reminder-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* ---------- TIER + POINTS ---------- */
+.tier-badge {
+  flex-shrink: 0; display: inline-grid; place-items: center;
+  min-width: 20px; height: 16px; padding: 0 4px; border-radius: 4px;
+  font-size: 9.5px; font-weight: 800; font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -.3px; line-height: 1;
+}
+.tier-badge.t1 { color: #ffd76e; background: rgba(255,199,61,.16); box-shadow: inset 0 0 0 1px rgba(255,199,61,.45), 0 0 8px rgba(255,199,61,.3); }
+.tier-badge.t2 { color: #ff9ce8; background: rgba(255,77,216,.14); box-shadow: inset 0 0 0 1px rgba(255,77,216,.4); }
+.tier-badge.t3 { color: #7fd8ff; background: rgba(0,229,255,.12); box-shadow: inset 0 0 0 1px rgba(0,229,255,.34); }
+.tier-badge.t4 { color: var(--text-dim); background: var(--bg-0); box-shadow: inset 0 0 0 1px var(--border); }
+.tier-badge.t5 { color: var(--text-faint); background: var(--bg-0); box-shadow: inset 0 0 0 1px var(--border); }
+.col-pts {
+  font-size: 9.5px; font-family: 'JetBrains Mono', monospace;
+  color: var(--stage-c); opacity: .85; margin-top: -2px;
+}
+
+/* ---------- SEGMENTED CONTROL + LIST VIEW ---------- */
+.seg { display: inline-flex; background: var(--bg-0); border: 1px solid var(--border); border-radius: 9px; padding: 2px; }
+.seg-btn {
+  background: transparent; border: 0; border-radius: 7px; cursor: pointer;
+  padding: 5px 12px; font-size: 12px; font-weight: 600; color: var(--text-faint);
+  transition: all .15s; font-family: inherit;
+}
+.seg-btn.active { background: var(--bg-3); color: var(--cyan); box-shadow: 0 0 10px rgba(0,229,255,.18); }
+.input-sm { width: auto; padding: 6px 10px; font-size: 12px; }
+.list-summary { font-size: 12.5px; color: var(--text-dim); margin-bottom: 10px; }
+.list-summary b { color: var(--cyan); }
+.list-table tr { cursor: pointer; }
+.list-table td { vertical-align: middle; }
+.cell-name { color: var(--text); font-weight: 600; }
+.cell-sub { display: block; font-size: 10.5px; color: var(--text-faint); font-weight: 400; }
+.cell-sub-only { font-size: 12px; color: var(--text-faint); }
+.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.mono.stale { color: var(--amber); }
+.stage-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  color: var(--sp-c); background: color-mix(in srgb, var(--sp-c) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sp-c) 30%, transparent);
+  white-space: nowrap;
+}
+.row-quick { display: flex; gap: 3px; }
+.row-quick .quick-btn { width: 26px; padding: 4px 0; }
+
+/* ---------- DISPOSITION TOAST ---------- */
+.toast-disp { display: flex; align-items: center; gap: 10px; }
+.toast-msg { font-weight: 600; white-space: nowrap; }
+.toast-input {
+  width: 260px; background: var(--bg-0); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 10px; color: var(--text);
+  font-family: inherit; font-size: 12.5px; outline: none;
+}
+.toast-input:focus { border-color: var(--cyan); box-shadow: 0 0 10px rgba(0,229,255,.25); }
+
+/* ---------- REMINDERS TAB ---------- */
+.rem-group h3 .count {
+  margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+  background: var(--bg-3); font-size: 11px; color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+.rem-group.overdue h3 { color: var(--red); }
+.rem-group.done { opacity: .72; }
+.rem-group.done:hover { opacity: 1; }
+.row-done .row-main { text-decoration: line-through; color: var(--text-faint); }
+.check-btn.checked { border-color: var(--green); color: var(--green); background: rgba(61,220,132,.12); }
+.row-time.stale { color: var(--amber); }
+
 /* ---------- CLOSE-OUT / CW1 ---------- */
 .co-mini { display: flex; gap: 4px; margin-top: 6px; }
 .co-dot {
